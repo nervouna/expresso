@@ -23,7 +23,7 @@ const output = { content: [text("PRIVATE RESULT\nsecond line")], isError: false 
 const mouse = (y: number): TuiMouseEvent => ({ type: "click", button: "left", x: 1, y, screenX: 1, screenY: y, width: 100, height: 20, shift: false, alt: false, ctrl: false });
 
 function setup(names = ["read", "bash"], originals: Record<string, ToolRenderers> = {}, nerdFonts = false,
-  timingLabel?: (id: string) => string | undefined) {
+  timingLabel?: (id: string) => string | undefined, activityFrame?: (id: string) => number) {
   const groups = new ToolGroups();
   const calls = names.map((name, i) => call(String(i), name, { path: `${i}.txt`, command: "echo secret\nPRIVATE COMMAND", content: "PRIVATE CONTENT" }));
   groups.observe(assistant(calls), "history");
@@ -31,7 +31,7 @@ function setup(names = ["read", "bash"], originals: Record<string, ToolRenderers
   const renderers = new CompactRenderers(groups, () => {
     expanded = !expanded;
     for (const component of components) component.setExpanded(expanded);
-  }, { nerdFonts }, timingLabel);
+  }, { nerdFonts }, timingLabel, activityFrame);
   const components = calls.map((c) => new ToolExecutionComponent(c.name, c.id, c.arguments, {}, renderers.wrap(c.name, originals[c.name]), ui, process.cwd()));
   const finish = (i: number, result = output, partial = false) => {
     groups.result(String(i), result.content, !partial, result.isError);
@@ -130,13 +130,13 @@ test("compact failures use warning text and a subtle tint with vanilla padding",
   }
 });
 
-test("Nerd Font standalone statuses use the agreed clock, spinner, check, and cross", () => {
+test("Nerd Font standalone statuses use dots for unfinished calls, checks, and crosses", () => {
   const { components: [c], finish } = setup(["read"], {}, true);
-  assert.deepEqual(plain(c), padded(" read 0.txt"));
+  assert.deepEqual(plain(c), padded(" read 0.txt"));
   c.markExecutionStarted();
-  assert.deepEqual(plain(c), padded(" read 0.txt"));
+  assert.deepEqual(plain(c), padded(" read 0.txt"));
   finish(0, output, true);
-  assert.deepEqual(plain(c), padded(" read 0.txt"));
+  assert.deepEqual(plain(c), padded(" read 0.txt"));
   finish(0);
   assert.deepEqual(plain(c), padded(" read 0.txt"));
   finish(0, { ...output, isError: true });
@@ -152,17 +152,47 @@ test("Nerd Font groups distinguish running, success, and completed failures", ()
     assert.ok(lines[2].includes(theme.fg(failed ? "warning" : "muted", label)));
     assert.deepEqual(components.slice(1).flatMap((c) => plain(c)), []);
   };
-  check(" Using 3 tools");
+  check(" Using 3 tools");
   finish(2);
-  check(" Using 3 tools");
+  check(" Using 3 tools");
   finish(1, { ...output, isError: true });
-  check(" Using 3 tools ( 1)", true);
+  check(" Using 3 tools ( 1)", true);
   finish(0);
   check(" Used 3 tools ( 1)", true);
   finish(0, { ...output, isError: true });
   check(" Used 3 tools ( 2)", true);
   finish(0); finish(1);
   check(" Used 3 tools");
+});
+
+test("activity frames alternate standalone and grouped dots without changing other statuses", async () => {
+  let frame = 0;
+  const solo = setup(["read"], {}, true, undefined, () => frame);
+  const group = setup(["read", "bash"], {}, true, undefined, () => frame);
+  const words = setup(["read"], {}, false, undefined, () => frame);
+  for (frame of [0, 1, 0]) {
+    for (const fixture of [solo, group, words]) fixture.groups.refresh(["0", "1"]);
+    await tick();
+    assert.deepEqual(plain(solo.components[0]), padded(`${frame ? "" : ""} read 0.txt`));
+    assert.match(plain(words.components[0])[2], /\[pending\]/);
+    assert.deepEqual(plain(group.components[0]), padded(`${frame ? "" : ""} Using 2 tools`));
+  }
+  solo.components[0].markExecutionStarted();
+  group.finish(1, { ...output, isError: true });
+  for (frame of [0, 1, 0]) {
+    for (const fixture of [solo, group]) fixture.groups.refresh(["0", "1"]);
+    await tick();
+    assert.deepEqual(plain(solo.components[0]), padded(`${frame ? "" : ""} read 0.txt`));
+    assert.deepEqual(plain(group.components[0]), padded(`${frame ? "" : ""} Using 2 tools ( 1)`));
+    for (const width of [1, 2, 3, 8, 80]) {
+      assert.ok(solo.components[0].render(width).every((line) => visibleWidth(line) <= width));
+    }
+  }
+  solo.finish(0);
+  group.finish(0);
+  frame = 1;
+  assert.deepEqual(plain(solo.components[0]), padded(" read 0.txt"));
+  assert.deepEqual(plain(group.components[0]), padded(" Used 2 tools ( 1)"));
 });
 
 test("Nerd Font glyphs remain width-safe and expanded output is unchanged", () => {

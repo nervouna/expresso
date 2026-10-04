@@ -79,14 +79,14 @@ Icons are opt-in. Add this key to your Pi settings, normally `~/.pi/agent/settin
 
 Pi's effective settings determine the value, so a trusted project's `.pi/settings.json` can override the user setting. If you use `PI_CODING_AGENT_DIR`, edit `settings.json` in that directory instead. Missing or invalid values default to `false`; only the boolean `true` enables icons. Expresso reads this preference on startup and reload without writing to your settings.
 
-Your terminal must use a Nerd Font, such as Maple Mono NF, or a font fallback providing these glyphs. The spinner is static.
+Your terminal must use a Nerd Font, such as Maple Mono NF, or a font fallback providing these glyphs. Icons for all unfinished calls, including calls waiting to start, alternate once per second between `nf-fa-circle` () and `nf-fa-circle-o` (), using the response timer's shared refresh.
 
 | State | Standalone call | Group |
 |---|---|---|
-| Waiting to start | ` read src/index.ts` | ` Using 3 tools` |
-| Running | ` read src/index.ts` | ` Using 3 tools` |
+| Waiting to start | ` read src/index.ts` | ` Using 3 tools` |
+| Running | ` read src/index.ts` | ` Using 3 tools` |
 | Completed successfully | ` read src/index.ts` | ` Used 3 tools` |
-| Running with a failure | N/A | ` Using 3 tools ( 1)` |
+| Running with a failure | N/A | ` Using 3 tools ( 1)` |
 | Finished with a failure | ` read src/index.ts` | ` Used 3 tools ( 1)` |
 
 Icon-mode groups omit the pending count but retain the failure count. Text mode keeps the original labels and counts. Backgrounds, padding, expanded details, and images are unchanged. Set `nerdFonts` to `false` and run `/reload` to return to text labels.

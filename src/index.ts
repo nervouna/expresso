@@ -20,7 +20,7 @@ export default function expresso(pi: ExtensionAPI) {
   // Pi rebuilds the transcript before session_start during /reload.
   const renderers = new CompactRenderers(groups, () => {
     if (ui) ui.setToolsExpanded(!ui.getToolsExpanded());
-  }, options, (id) => timings.label(id));
+  }, options, (id) => timings.label(id), (id) => timings.activityFrame(id));
 
   const restore = (event: { type: string }, ctx: ExtensionContext) => {
     groups.reset();

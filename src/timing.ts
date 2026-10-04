@@ -86,6 +86,12 @@ export class RoundTimings {
       : `took ${formatDuration(round.elapsedMs)}`;
   }
 
+  activityFrame(toolCallId: string): number {
+    const round = this.byTool.get(toolCallId);
+    if (!round || round.elapsedMs !== undefined) return 0;
+    return Math.floor(Math.max(0, this.now() - round.startedAt) / 1000) % 2;
+  }
+
   finish(): TimingRecord | undefined {
     const round = this.active;
     this.cancelTick?.();

@@ -63,6 +63,24 @@ test("one clock covers reasoning, every tool group, and the final answer", () =>
   assert.equal(c.timings.label("unknown"), undefined);
 });
 
+test("activity frames share the one-second round clock and stop after settlement", () => {
+  const c = clock();
+  assert.equal(c.timings.activityFrame("unknown"), 0);
+  c.timings.start();
+  c.timings.observe(assistant([call("a"), call("b")]));
+  for (const [advance, frame] of [[0, 0], [999, 0], [1, 1], [999, 1], [1, 0], [1000, 1]]) {
+    c.advance(advance);
+    c.tick();
+    for (const id of ["a", "b"]) assert.equal(c.timings.activityFrame(id), frame);
+  }
+  assert.equal(c.schedules, 1);
+  c.timings.finish();
+  assert.equal(c.callbacks.size, 0);
+  assert.equal(c.timings.activityFrame("a"), 0);
+  c.timings.restore([entry(record())]);
+  assert.equal(c.timings.activityFrame("a"), 0);
+});
+
 test("automatic retries and continuations do not restart the clock", () => {
   const c = clock();
   c.timings.start();

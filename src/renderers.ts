@@ -7,8 +7,8 @@ import { ToolGroups, type Redraw } from "./groups.ts";
 import type { CompactOptions } from "./settings.ts";
 
 const icons = {
-  pending: "\uf017",
-  running: "\uf110",
+  pending: "\uf111",
+  running: "\uf111",
   done: "\uf00c",
   failed: "\uf00d",
   groupFailed: "\uf071",
@@ -66,6 +66,7 @@ class Slot implements Component {
     private readonly toggleAll: () => void,
     private readonly options: CompactOptions,
     private readonly timingLabel: (toolCallId: string) => string | undefined,
+    private readonly activityFrame: (toolCallId: string) => number,
   ) {}
 
   invalidate() {
@@ -86,12 +87,13 @@ class Slot implements Component {
       if (group && group[0] !== row) return [];
       const pending = group?.filter((entry) => entry.pending).length ?? Number(context.isPartial);
       const errors = group?.filter((entry) => entry.error).length ?? Number(context.isError);
+      const runningIcon = this.activityFrame(context.toolCallId) % 2 ? "\uf10c" : icons.running;
       let label: string;
       let detail = "";
       if (group && group.length > 1) {
         label = `${pending ? "Using" : "Used"} ${group.length} tools`;
         if (this.options.nerdFonts) {
-          const icon = pending ? icons.running : errors ? icons.groupFailed : icons.done;
+          const icon = pending ? runningIcon : errors ? icons.groupFailed : icons.done;
           label = `${icon} ${label}`;
           if (errors) label += ` (${icons.failed} ${errors})`;
         } else {
@@ -104,7 +106,7 @@ class Slot implements Component {
         const status = errors || context.isError ? "failed"
           : pending ? context.executionStarted ? "running" : "pending" : "done";
         // Put status first so narrow terminals do not truncate a failure marker.
-        label = `${this.options.nerdFonts ? icons[status] : `[${status}]`} ${label}`;
+        label = `${this.options.nerdFonts ? status === "running" || status === "pending" ? runningIcon : icons[status] : `[${status}]`} ${label}`;
       }
       const failed = errors > 0 || context.isError;
       const color = failed ? "warning" : "muted";
@@ -208,6 +210,7 @@ export class CompactRenderers {
     private readonly toggleAll: () => void,
     private readonly options: CompactOptions = { nerdFonts: false },
     private readonly timingLabel: (toolCallId: string) => string | undefined = () => undefined,
+    private readonly activityFrame: (toolCallId: string) => number = () => 0,
   ) {}
 
   wrap(name: string, original: ToolRenderers = {}): ToolRenderers {
@@ -230,7 +233,7 @@ export class CompactRenderers {
       return state;
     };
     const view = (state: State, kind: SlotName) => state.views[kind] ??=
-      new Slot(name, kind, state, this.groups, this.toggleAll, this.options, this.timingLabel);
+      new Slot(name, kind, state, this.groups, this.toggleAll, this.options, this.timingLabel, this.activityFrame);
     return {
       renderShell: "self",
       renderCall: (args, theme, context) => {
