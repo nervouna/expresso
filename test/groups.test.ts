@@ -80,6 +80,27 @@ test("out-of-order completion, failures, and aborts retain status", () => {
   assert.equal(groups.rows.size, 4);
 });
 
+test("clock ticks refresh only current leaders and preserve queued full invalidations", async () => {
+  const groups = new ToolGroups();
+  groups.observe(assistant(["a", "b", "c", "d"].map((id) => call(id))), "history");
+  groups.result("b", [png], true);
+  await tick();
+  const redraws: [string, boolean | undefined][] = [];
+  const listeners = ["a", "b", "c", "d"].map((id) => ({
+    redraw(compactOnly?: boolean) { redraws.push([id, compactOnly]); },
+  }));
+  ["a", "b", "c", "d"].forEach((id, i) => groups.subscribe(id, listeners[i]));
+  groups.refresh(["a", "b", "c", "d", "missing"]);
+  groups.refresh(["a", "b", "c", "d"]);
+  await tick();
+  assert.deepEqual(redraws, [["a", true], ["b", true], ["c", true]]);
+  redraws.length = 0;
+  groups.result("c", [], true);
+  groups.refresh(["c", "d"]);
+  await tick();
+  assert.deepEqual(redraws, [["c", false], ["d", false]]);
+});
+
 test("group growth and image splits invalidate affected siblings once per microtask", async () => {
   const groups = new ToolGroups();
   groups.observe(assistant([call("a"), call("b")]), "history");

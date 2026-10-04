@@ -65,6 +65,7 @@ class Slot implements Component {
     private readonly groups: ToolGroups,
     private readonly toggleAll: () => void,
     private readonly options: CompactOptions,
+    private readonly timingLabel: (toolCallId: string) => string | undefined,
   ) {}
 
   invalidate() {
@@ -113,8 +114,10 @@ class Slot implements Component {
       const box = new Box(width > 2 ? 1 : 0, 1, (line) => warningBackground
         ? state.theme.style(line, { bg: warningBackground })
         : state.theme.bg("toolPendingBg", line));
+      const timing = this.timingLabel(context.toolCallId);
+      const summary = label + (timing ? state.theme.fg("muted", `, ${timing}`) : "");
       box.addChild({
-        render: (contentWidth) => [state.theme.fg(color, truncateToWidth(label, contentWidth))],
+        render: (contentWidth) => [state.theme.fg(color, truncateToWidth(summary, contentWidth))],
         invalidate() {},
       });
       return box.render(width);
@@ -194,6 +197,7 @@ export class CompactRenderers {
     private readonly groups: ToolGroups,
     private readonly toggleAll: () => void,
     private readonly options: CompactOptions = { nerdFonts: false },
+    private readonly timingLabel: (toolCallId: string) => string | undefined = () => undefined,
   ) {}
 
   wrap(name: string, original: ToolRenderers = {}): ToolRenderers {
@@ -202,7 +206,10 @@ export class CompactRenderers {
       if (!state) {
         state = {
           args: context.args, prepared: false, theme, original, downstream: {}, previous: {}, views: {}, contexts: {},
-          redraw() { (this.contexts.call ?? this.contexts.result)?.invalidate(); },
+          redraw(compactOnly = false) {
+            const context = this.contexts.call ?? this.contexts.result;
+            if (context && (!compactOnly || !context.expanded)) context.invalidate();
+          },
         };
         this.states.set(context.state, state);
         this.groups.subscribe(context.toolCallId, state);
@@ -213,7 +220,7 @@ export class CompactRenderers {
       return state;
     };
     const view = (state: State, kind: SlotName) => state.views[kind] ??=
-      new Slot(name, kind, state, this.groups, this.toggleAll, this.options);
+      new Slot(name, kind, state, this.groups, this.toggleAll, this.options, this.timingLabel);
     return {
       renderShell: "self",
       renderCall: (args, theme, context) => {

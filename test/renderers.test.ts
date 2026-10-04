@@ -22,7 +22,8 @@ const compactBackground = (line: string, failed: boolean) => failed
 const output = { content: [text("PRIVATE RESULT\nsecond line")], isError: false };
 const mouse = (y: number): TuiMouseEvent => ({ type: "click", button: "left", x: 1, y, screenX: 1, screenY: y, width: 100, height: 20, shift: false, alt: false, ctrl: false });
 
-function setup(names = ["read", "bash"], originals: Record<string, ToolRenderers> = {}, nerdFonts = false) {
+function setup(names = ["read", "bash"], originals: Record<string, ToolRenderers> = {}, nerdFonts = false,
+  timingLabel?: (id: string) => string | undefined) {
   const groups = new ToolGroups();
   const calls = names.map((name, i) => call(String(i), name, { path: `${i}.txt`, command: "echo secret\nPRIVATE COMMAND", content: "PRIVATE CONTENT" }));
   groups.observe(assistant(calls), "history");
@@ -30,7 +31,7 @@ function setup(names = ["read", "bash"], originals: Record<string, ToolRenderers
   const renderers = new CompactRenderers(groups, () => {
     expanded = !expanded;
     for (const component of components) component.setExpanded(expanded);
-  }, { nerdFonts });
+  }, { nerdFonts }, timingLabel);
   const components = calls.map((c) => new ToolExecutionComponent(c.name, c.id, c.arguments, {}, renderers.wrap(c.name, originals[c.name]), ui, process.cwd()));
   const finish = (i: number, result = output, partial = false) => {
     groups.result(String(i), result.content, !partial, result.isError);
@@ -177,6 +178,54 @@ test("Nerd Font glyphs remain width-safe and expanded output is unchanged", () =
   assert.deepEqual(icons.components.flatMap((c) => c.render(100)), words.components.flatMap((c) => c.render(100)));
 });
 
+test("timing stays muted for successful and failed blocks in both themes and icon modes", () => {
+  try {
+    for (const themeName of ["dark", "light"]) {
+      initTheme(themeName, false);
+      for (const nerdFonts of [false, true]) {
+        for (const names of [["read"], ["read", "bash"]]) {
+          let timing = "36s elapsed";
+          const fixture = setup(names, {}, nerdFonts, () => timing);
+          const header = () => fixture.components[0].render(100)[2];
+          assert.match(stripTerminalSequences(header()), /, 36s elapsed/);
+          for (let i = 0; i < names.length; i++) fixture.finish(i);
+          assert.match(stripTerminalSequences(header()), /, 36s elapsed/);
+          fixture.finish(0, { ...output, isError: true });
+          timing = "took 1h 02m 05s";
+          assert.match(stripTerminalSequences(header()), /, took 1h 02m 05s/);
+          assert.ok(header().includes(theme.fg("muted", `, ${timing}`)));
+          assert.deepEqual(fixture.components.slice(1).flatMap((c) => plain(c)), []);
+          for (const width of [1, 2, 3, 8, 20, 40, 80]) {
+            const lines = fixture.components.flatMap((c) => c.render(width));
+            assert.equal(lines.length, 4);
+            assert.ok(lines.every((line) => visibleWidth(line) <= width));
+          }
+          for (const c of fixture.components) c.setExpanded(true);
+          assert.doesNotMatch(fixture.components.flatMap((c) => plain(c)).join("\n"), /elapsed|took/);
+        }
+      }
+    }
+  } finally {
+    initTheme("dark", false);
+  }
+});
+
+test("clock ticks do not invalidate expanded downstream renderers", async () => {
+  let calls = 0;
+  const h = setup(["read"], { read: { renderCall: () => {
+    calls++;
+    return new Text("original details", 0, 0);
+  } } }, false, () => "1s elapsed");
+  await tick();
+  h.components[0].setExpanded(true);
+  plain(h.components[0]);
+  const before = calls;
+  h.groups.refresh(["0"]);
+  await tick();
+  plain(h.components[0]);
+  assert.equal(calls, before);
+});
+
 test("compact padding and headers remain clickable across the full block width", () => {
   for (const y of [1, 2, 3]) {
     for (const x of [0, 1, 99]) {
@@ -312,7 +361,8 @@ test("headers handle missing arguments, ANSI, Unicode, newlines, and narrow widt
 test("inline image sequences survive collapse, expansion, and regrouping unchanged", async () => {
   setCapabilities({ images: "iterm2", trueColor: true, hyperlinks: true });
   try {
-    const { groups, components, finish } = setup(["read", "read", "read", "read"]);
+    let timing = "36s elapsed";
+    const { groups, components, finish } = setup(["read", "read", "read", "read"], {}, false, () => timing);
     finish(0); finish(2); finish(3);
     groups.result("1", [png], true);
     components[1].updateResult({ content: [png, text("image description")], isError: false });
@@ -320,6 +370,12 @@ test("inline image sequences survive collapse, expansion, and regrouping unchang
     const imageLines = (c: ToolExecutionComponent) => c.render(100).filter((line) => line.includes("\x1b]1337;File="));
     const collapsed = imageLines(components[1]);
     assert.equal(collapsed.length, 1);
+    assert.equal((components.flatMap((c) => plain(c)).join("\n").match(/36s elapsed/g) ?? []).length, 3);
+    timing = "took 48s";
+    groups.refresh(["0", "1", "2", "3"]);
+    await tick();
+    assert.equal((components.flatMap((c) => plain(c)).join("\n").match(/took 48s/g) ?? []).length, 3);
+    assert.deepEqual(imageLines(components[1]), collapsed);
     assert.match(plain(components[0])[2], /\[done\] read/);
     assert.match(plain(components[2])[2], /Used 2 tools/);
     components[1].setExpanded(true);

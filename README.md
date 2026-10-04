@@ -3,11 +3,11 @@
 A Pi extension that collapses consecutive tool calls into a one-line summary with a subdued, theme-aware background and vanilla Pi padding. Tested with `@earendil-works/pi-coding-agent` 1.0.2.
 
 ```text
-Used 3 tools
+Used 3 tools, took 48s
 
-[1 failed] Used 2 tools
+[1 failed] Used 2 tools, took 48s
 
-[done] read src/index.ts
+[done] read src/index.ts, took 48s
 ```
 
 ## Try it
@@ -34,12 +34,28 @@ Expresso targets the Earendil Pi package named above and requires its `registerT
 
 - A single call shows its status, tool name, and a short identifier when available, such as a path or the first command line. Scripts, file contents, diffs, JSON arguments, and result previews stay hidden.
 - Adjacent calls share `Used X tools`. The count is tool invocations, including repeated uses of the same tool. Calls can span several execution steps.
-- Visible assistant or user messages end a group. Thinking blocks also end groups because Pi displays either their contents or a collapsed thinking label. Visible custom messages and session summaries are boundaries too. Custom session entries conservatively end groups because their visibility depends on their renderer.
+- Visible assistant or user messages end a group. Thinking blocks also end groups because Pi displays either their contents or a collapsed thinking label. Visible custom messages and session summaries are boundaries too. Custom session entries conservatively end groups because their visibility depends on their renderer. Expresso's own hidden timing entries do not end groups.
 - Running groups show `Using X tools` with a pending count. Failures remain visible even when their details are collapsed.
 - Image-producing calls stay separate, with groups split on both sides. Pi still draws the images using its existing size, protocol, and visibility settings. Expresso never removes image data or changes your image preference.
 - Built-in tools, codemode, extension tools, and MCP tools use the same grouping logic. Tools called inside codemode count as part of the codemode invocation unless Pi gives them their own transcript rows.
 
 Each visible compact block has one column of horizontal padding and one blank row above and below its single content line. Waiting, running, and successful calls use muted text on Pi's `toolPendingBg`, a subdued gray in the built-in dark and light themes. If any call failed, the block uses Pi's warning text color on a subtle warning-tinted background (12% warning color blended into the neutral background). Expanded details retain their original tool styling. Pi retains its normal blank separator before the block. Hidden members take no lines and add no padding. At widths of one or two columns, horizontal padding is omitted to keep the summary within the terminal.
+
+### Response timing
+
+Compact summaries share one timer for each response to a user prompt. It includes reasoning, tool execution, and the final answer. The duration updates once per second until Pi finishes the response, including any automatic retries or continuations.
+
+```text
+Using 3 tools (1 pending), 36s elapsed
+Used 3 tools, 42s elapsed
+Used 3 tools, took 48s
+```
+
+Completed tool groups keep counting while the response is still running. Separate groups and image-producing calls in the same response show the same duration. Time stays muted, including on failed blocks, and does not appear in expanded details. Durations use seconds, minutes, or hours: `9s`, `1m 03s`, `1h 02m 05s`.
+
+A queued follow-up or steering message starts a new timer when Pi begins handling it, ending the previous round. Time spent waiting in the input queue is excluded. Cancellation and orderly shutdown freeze the elapsed time so far.
+
+Expresso saves one hidden `expresso:round-timing` entry per tool-using round, containing tool-call IDs and elapsed time. This metadata never enters model context. Final durations survive resume, `/reload`, tree navigation, and compaction on the active branch. Older rounds without a timing entry show no duration; a process crash can also leave an unfinished round without one.
 
 ### Nerd Font icons
 
@@ -87,29 +103,31 @@ Expanded views delegate to the original tool renderers, including their formatti
 
 ## Acceptance demo
 
-The offline demo opens a generated session containing built-in calls, codemode, an unregistered MCP tool, a failure, and an image. It makes no model requests and does not execute the recorded tool calls.
+The offline demo opens a generated session containing built-in calls, codemode, an unregistered MCP tool, a failure, and an image. Its recorded round has a 48-second duration. It makes no model requests and does not execute the recorded tool calls.
 
 ```sh
 npm ci
 npm run demo
 # Preview Nerd Font icons using only the demo's temporary settings:
 npm run demo -- --nerd-fonts
+# Watch a live response timer with an offline mock provider:
+npm run demo -- --live --nerd-fonts
 # Or use regular terminal mode:
 npm run demo -- --tui-mode regular
 ```
 
-The demo uses temporary Pi settings and session files, which it removes on exit. Your personal settings and sessions are untouched. A warning about missing model credentials is expected in this isolated environment.
+The demo uses temporary Pi settings and session files, which it removes on exit. Your personal settings and sessions are untouched. Without `--live`, a warning about missing model credentials is expected in this isolated environment. The live demo uses a local mock provider and harmless wait tools. It creates two groups, including one failure, then pauses before finishing its answer so you can watch both timers continue. It needs no credentials and makes no network requests.
 
 Check the following:
 
-1. The first three calls share one padded `Used 3 tools` summary with a subdued background, even though they came from two execution steps.
+1. The first three calls share one padded `Used 3 tools, took 48s` summary with a subdued background, even though they came from two execution steps.
 2. The standalone edit has one content line with the same padding. The following group shows a failure marker with warning-colored text and a subtle warning-tinted background.
 3. Ctrl+O reveals arguments, output, and the edit diff. Press it again to restore the summaries.
 4. The colored image remains between two groups, each containing two calls, if your terminal supports Pi's image protocol.
-5. `/reload` preserves the compact presentation. Resize the terminal and try both TUI modes.
+5. `/reload` preserves the compact presentation and final duration. Resize the terminal and try both TUI modes.
 6. In fullscreen mode, click a summary to toggle details. Check your rebound expansion shortcut too, if you use one.
 
-For your normal working session, run `pi -e ./src/index.ts` and ask the agent to use several tools. Check that the count and pending/failure indicators update as calls arrive.
+For your normal working session, run `pi -e ./src/index.ts` and ask the agent to use several tools. Check that the count and pending/failure indicators update as calls arrive, that elapsed time keeps updating during the final answer, and that it freezes once the response ends.
 
 ## Development and checks
 
@@ -119,12 +137,12 @@ npm run test:tui     # Real CLI smoke tests; requires Python 3 and a POSIX PTY
 npm pack --dry-run   # Inspect the package contents
 ```
 
-The automated tests cover streaming updates, boundaries, failures and aborts, image splits, width handling, theme changes, downstream renderer reuse, HTML results, lifecycle restoration, and non-TUI passthrough. Compact styling and padding are checked in dark and light themes: non-failed blocks use Pi's neutral pending background, and failures use warning text with a subtle warning tint, including mixed pending/failed groups. Built-in expanded output is also compared against Pi's tool components.
+The automated tests cover streaming updates, boundaries, failures and aborts, image splits, width handling, theme changes, downstream renderer reuse, HTML results, lifecycle restoration, and non-TUI passthrough. Timer tests cover duration formatting, shared clocks, queued prompts, retries, final metadata, branch restoration, compaction, and cleanup. Clock ticks do not invalidate expanded renderers. Compact styling and padding are checked in dark and light themes: non-failed blocks use Pi's neutral pending background, and failures use warning text with a subtle warning tint, including mixed pending/failed groups. Built-in expanded output is also compared against Pi's tool components.
 
-The PTY suite checks both fullscreen and regular modes with icons enabled and disabled, including Ctrl+O, image protocol output, changing the preference through `/reload`, and resizing. It uses isolated settings and no model requests. To check a different installed Pi binary:
+The PTY suite checks both fullscreen and regular modes with icons enabled and disabled, including Ctrl+O, image protocol output, changing the preference through `/reload`, and resizing. It also checks live timer updates, completion, cancellation, and saved durations using the offline mock provider. All checks use isolated settings and make no network requests. To check a different installed Pi binary:
 
 ```sh
 PI_BIN="$(command -v pi)" npm run test:tui
 ```
 
-Production code is in `src/index.ts`, `src/groups.ts`, `src/renderers.ts`, and `src/settings.ts`. Tests pin Pi 1.0.2 and inspect some of its internal components; those internal imports are confined to the tests.
+Production code is in `src/index.ts`, `src/groups.ts`, `src/renderers.ts`, `src/settings.ts`, and `src/timing.ts`. Tests pin Pi 1.0.2 and inspect some of its internal components; those internal imports are confined to the tests.

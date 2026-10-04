@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { crc32, deflateSync } from "node:zlib";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { assistant, call, text, type Assistant } from "../test/helpers.ts";
+import { TIMING_ENTRY } from "../src/timing.ts";
 
 const directory = mkdtempSync(join(tmpdir(), "pi-expresso-demo-"));
 const agentDir = join(directory, "agent");
@@ -42,9 +43,11 @@ const session = SessionManager.create(process.cwd(), join(directory, "sessions")
 session.appendSessionInfo("Expresso offline acceptance demo");
 session.appendMessage({ role: "user", content: "Offline fixture: use Ctrl+O to inspect tool details.", timestamp: 1 });
 const heading = (value: string) => session.appendMessage(assistant([text(value)], "stop"));
+const toolCallIds: string[] = [];
 const add = (calls: Extract<Assistant["content"][number], { type: "toolCall" }>[], failed?: string) => {
   session.appendMessage(assistant(calls));
   for (const c of calls) {
+    toolCallIds.push(c.id);
     session.appendMessage({
       role: "toolResult", toolCallId: c.id, toolName: c.name, timestamp: 2,
       isError: c.id === failed,
@@ -74,18 +77,22 @@ add([
   call("right1"), call("right2"),
 ]);
 heading("End of fixture. Ctrl+O toggles details; /reload checks extension reload.");
+session.appendCustomEntry(TIMING_ENTRY, { version: 1, toolCallIds, elapsedMs: 48_000 });
 
 const args = [
   "--offline", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-approve",
   "-e", resolve("src/index.ts"), "--session", session.getSessionFile()!,
-  ...process.argv.slice(2).filter((arg) => arg !== "--prepare-only" && arg !== "--nerd-fonts"),
+  ...process.argv.slice(2).filter((arg) => !["--prepare-only", "--nerd-fonts", "--live"].includes(arg)),
+  ...(process.argv.includes("--live") ? [
+    "-e", resolve("scripts/timer-provider.ts"), "--provider", "expresso-demo", "--model", "timer", "--thinking", "off",
+  ] : []),
 ];
 const command = process.env.PI_BIN ?? resolve("node_modules/.bin/pi");
 if (process.argv.includes("--prepare-only")) {
-  console.log(JSON.stringify({ directory, agentDir, command, args }));
+  console.log(JSON.stringify({ directory, agentDir, command, args, sessionFile: session.getSessionFile() }));
 } else {
   try {
-    const child = spawnSync(command, args, {
+    const child = spawnSync(command, process.argv.includes("--live") ? [...args, "Run the offline timer demo."] : args, {
       stdio: "inherit", env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_TELEMETRY: "0" },
     });
     if (child.error) throw child.error;

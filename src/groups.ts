@@ -11,14 +11,14 @@ export type ToolRow = {
   group: ToolRow[];
   listeners: Set<WeakRef<Redraw>>;
 };
-export type Redraw = { redraw(): void };
+export type Redraw = { redraw(compactOnly?: boolean): void };
 
 export class ToolGroups {
   readonly rows = new Map<string, ToolRow>();
   private slots: Slot[] = [];
   private listeners = new Map<string, Set<WeakRef<Redraw>>>();
   private streaming?: Slot;
-  private dirty = new Set<ToolRow>();
+  private dirty = new Map<ToolRow, boolean>();
   private scheduled = false;
   private disposed = false;
 
@@ -107,6 +107,15 @@ export class ToolGroups {
     if (changed) this.touch(row.group);
   }
 
+  refresh(ids: Iterable<string>) {
+    const leaders = new Set<ToolRow>();
+    for (const id of ids) {
+      const row = this.rows.get(id);
+      if (row) leaders.add(row.group[0]);
+    }
+    if (leaders.size) this.touch([...leaders], true);
+  }
+
   subscribe(id: string, listener: Redraw) {
     let listeners = this.listeners.get(id);
     if (!listeners) this.listeners.set(id, listeners = new Set());
@@ -144,8 +153,9 @@ export class ToolGroups {
     }
   }
 
-  private touch(rows: ToolRow[]) {
-    for (const row of rows) this.dirty.add(row);
+  private touch(rows: ToolRow[], compactOnly = false) {
+    // A clock tick must not downgrade an already queued full invalidation.
+    for (const row of rows) this.dirty.set(row, compactOnly && this.dirty.get(row) !== false);
     if (this.scheduled || this.disposed) return;
     this.scheduled = true;
     queueMicrotask(() => {
@@ -153,10 +163,10 @@ export class ToolGroups {
       if (this.disposed) return;
       const dirty = [...this.dirty];
       this.dirty.clear();
-      for (const row of dirty) {
+      for (const [row, compactOnly] of dirty) {
         for (const ref of row.listeners) {
           const listener = ref.deref();
-          if (listener) listener.redraw();
+          if (listener) listener.redraw(compactOnly);
           else row.listeners.delete(ref);
         }
       }

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Exercise the real Pi CLI in a PTY without model requests or personal settings."""
+"""Exercise the real Pi CLI in a PTY with offline fixtures and isolated settings."""
 import fcntl
 import json
 import os
 import pty
+import re
 import select
 import shutil
 import signal
@@ -17,10 +18,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def run(mode, nerd_fonts):
+def run(mode, nerd_fonts, live=False):
     fixture = json.loads(subprocess.check_output(
         ["node", "--import", "tsx", "scripts/demo.ts", "--prepare-only", "--tui-mode", mode,
-         *(["--nerd-fonts"] if nerd_fonts else [])],
+         *(["--nerd-fonts"] if nerd_fonts else []), *(["--live"] if live else [])],
         cwd=ROOT, text=True,
     ))
     master, slave = pty.openpty()
@@ -60,6 +61,7 @@ def run(mode, nerd_fonts):
         return bytes(data)
 
     def assert_style(data, enabled):
+        assert b"took 48s" in data, "Saved duration is missing"
         if enabled:
             assert " Used 3 tools".encode() in data, "Successful-group icon is missing"
             assert " Used 2 tools ( 1)".encode() in data, "Failed-group icons are missing"
@@ -96,9 +98,50 @@ def run(mode, nerd_fonts):
             fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 100, columns, columns * 8, 1600))
             os.kill(process.pid, signal.SIGWINCH)
             drain(timeout=3)
+        if live:
+            settings["expresso"]["nerdFonts"] = nerd_fonts
+            settings_path.write_text(json.dumps(settings))
+            os.write(master, b"/reload\r")
+            assert_style(drain(marker=b"Used 3 tools"), nerd_fonts)
+            os.write(master, b"Run the offline timer demo.\r")
+            running = drain(timeout=25, marker=b"LIVE TIMER COMPLETE")
+            plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", running)
+            assert b"Using 2 tools" in plain
+            assert len(set(re.findall(rb"(\d+)s elapsed", plain))) >= 3, "Live duration did not advance"
+            after_tools = plain[plain.index(b"Tools finished;"):]
+            assert len(set(re.findall(rb"Used 2 tools[^\r\n]*?, (\d+)s elapsed", after_tools))) >= 2, \
+                "Timer stopped before the final answer finished"
+            assert b"EXPRESSO_LIVE_DETAIL" not in running
+
+            def records():
+                entries = [json.loads(line) for line in Path(fixture["sessionFile"]).read_text().splitlines()]
+                return [entry["data"] for entry in entries if entry.get("customType") == "expresso:round-timing"
+                        and all(tool_id.startswith("live-") for tool_id in entry["data"]["toolCallIds"])]
+
+            saved = records()
+            assert len(saved) == 1 and len(saved[0]["toolCallIds"]) == 4, "Groups did not share one round"
+            final_label = f"took {int(saved[0]['elapsedMs'] // 1000)}s".encode()
+            assert final_label in running, "Final duration was not rendered"
+            os.write(master, b"\x0f")
+            drain(marker=b"EXPRESSO_LIVE_DETAIL")
+            os.write(master, b"\x0f")
+            drain(marker=final_label)
+            os.write(master, b"/reload\r")
+            drain(marker=final_label)
+            assert records() == saved, "Reload changed the frozen duration"
+
+            os.write(master, b"Run the offline timer demo again.\r")
+            drain(timeout=2.5, marker=b"Using 2 tools")
+            os.write(master, b"\x1b")
+            drain(timeout=8, marker=b"took ")
+            stopped = records()
+            assert len(stopped) == 2, "Abort did not freeze the new round"
+            assert stopped[0] == saved[0], "A later round changed an earlier duration"
+            assert stopped[1]["elapsedMs"] < saved[0]["elapsedMs"], "Abort kept the timer running"
         assert b"Extension Error" not in transcript
         assert b"Failed to load extension" not in transcript
-        print(f"PASS {mode}, nerdFonts={nerd_fonts}: collapsed, Ctrl+O, images, reload, settings toggle, resize")
+        checks = "live ticks, final duration, abort, reload" if live else "collapsed, Ctrl+O, images, reload, settings toggle, resize"
+        print(f"PASS {mode}, nerdFonts={nerd_fonts}: {checks}")
     except Exception:
         with tempfile.NamedTemporaryFile(prefix=f"pi-expresso-{mode}-", suffix=".ansi", delete=False) as log:
             log.write(transcript)
@@ -115,6 +158,8 @@ def run(mode, nerd_fonts):
         shutil.rmtree(fixture["directory"], ignore_errors=True)
 
 
-for tui_mode in ("fullscreen", "regular"):
-    for use_nerd_fonts in (False, True):
-        run(tui_mode, use_nerd_fonts)
+if __name__ == "__main__":
+    for tui_mode in ("fullscreen", "regular"):
+        for use_nerd_fonts in (False, True):
+            run(tui_mode, use_nerd_fonts)
+        run(tui_mode, tui_mode == "fullscreen", live=True)

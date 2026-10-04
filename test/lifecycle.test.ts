@@ -8,6 +8,7 @@ import {
 import { stripTerminalSequences, type TUI } from "@earendil-works/pi-tui";
 import { loadExtensions } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js";
 import { assistant, call, result, text, tick } from "./helpers.ts";
+import { TIMING_ENTRY } from "../src/timing.ts";
 
 initTheme("dark", false);
 
@@ -18,7 +19,9 @@ async function harness() {
   const settings = SettingsManager.inMemory();
   loaded.runtime.getSettings = () => settings.getSettings();
   const session = SessionManager.inMemory(process.cwd());
+  loaded.runtime.appendEntry = (type, data) => { session.appendCustomEntry(type, data); };
   let expanded = false;
+  let renders = 0;
   const components: ToolExecutionComponent[] = [];
   const ctx = {
     mode: "tui", hasUI: true, sessionManager: session,
@@ -36,14 +39,21 @@ async function harness() {
   };
   const resolver = extension.toolRenderers![0];
   const addComponent = (id: string, name = "unknown_mcp", original?: ToolRenderers) => {
-    const c = new ToolExecutionComponent(name, id, {}, {}, resolver(name, () => original), { requestRender() {} } as TUI, process.cwd());
+    const c = new ToolExecutionComponent(name, id, {}, {}, resolver(name, () => original), { requestRender() { renders++; } } as TUI, process.cwd());
     c.setExpanded(expanded);
     components.push(c);
     return c;
   };
   const render = () => components.flatMap((c) => c.render(80)).map(stripTerminalSequences).join("\n");
   const setSettings = (value: unknown) => settings.applyOverrides(value as Parameters<typeof settings.applyOverrides>[0]);
-  return { extension, session, ctx, components, emit, resolver, addComponent, render, setSettings };
+  const message = async (message: Parameters<typeof session.appendMessage>[0]) => {
+    await emit({ type: "message_start", message });
+    await emit({ type: "message_end", message });
+    return session.appendMessage(message);
+  };
+  return { extension, session, ctx, components, emit, message, resolver, addComponent, render, setSettings,
+    get renders() { return renders; },
+  };
 }
 
 test("extension loads through Pi's TypeScript loader without replacing tools or shortcuts", async () => {
@@ -156,10 +166,126 @@ test("non-TUI modes pass original renderers through and register no execution ho
     await h.emit({ type: "session_start", reason: "startup" });
     const original: ToolRenderers = { renderShell: "default" };
     assert.equal(h.resolver("read", () => original), original);
+    await h.emit({ type: "agent_start" });
+    await h.emit({ type: "message_start", message: assistant([call("a")]) });
+    await h.emit({ type: "agent_settled" });
+    assert.equal(h.session.getEntries().length, 0);
     for (const name of ["tool_call", "tool_result", "context", "message_end"]) {
       if (name !== "message_end") assert.equal(h.extension.handlers.has(name), false);
     }
   }
+});
+
+test("round timing keeps ticking after tools finish and freezes only at settlement", async (t) => {
+  const h = await harness();
+  let now = 0;
+  t.mock.method(performance, "now", () => now);
+  t.after(() => h.emit({ type: "session_shutdown", reason: "quit" }));
+  await h.emit({ type: "session_start", reason: "startup" });
+  await h.emit({ type: "agent_start" });
+  await h.message({ role: "user", content: "work", timestamp: 1 });
+  now = 36_000;
+  await h.message(assistant([call("a"), call("b")]));
+  h.addComponent("a"); h.addComponent("b");
+  assert.match(h.render(), /Using 2 tools \(2 pending\), 36s elapsed/);
+  await h.message(result("a")); await h.message(result("b"));
+  await h.message(assistant([text("Still checking.")]));
+  await h.message(assistant([call("c")]));
+  h.addComponent("c");
+  await h.message(result("c"));
+  now = 42_000;
+  assert.match(h.render(), /Used 2 tools, 42s elapsed/);
+  assert.match(h.render(), /\[done\] unknown_mcp, 42s elapsed/);
+  const beforeTick = h.renders;
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  assert.ok(h.renders > beforeTick, "the shared timer invalidates compact summaries without tool updates");
+  await h.emit({ type: "agent_end", messages: [] });
+  await h.emit({ type: "agent_start" });
+  now = 48_000;
+  assert.match(h.render(), /48s elapsed/);
+  const originalEntries = structuredClone(h.session.getEntries());
+  await h.emit({ type: "agent_settled" });
+  assert.equal((h.render().match(/took 48s/g) ?? []).length, 2);
+  const entries = h.session.getEntries();
+  assert.deepEqual(entries.slice(0, -1), originalEntries);
+  const saved = entries.at(-1)!;
+  assert.equal(saved.type, "custom");
+  if (saved.type !== "custom") throw new Error("missing timing entry");
+  assert.equal(saved.customType, TIMING_ENTRY);
+  assert.deepEqual(saved.data, { version: 1, elapsedMs: 48_000, toolCallIds: ["a", "b", "c"] });
+  assert.equal(h.session.buildSessionContext().messages.some((m) => JSON.stringify(m).includes(TIMING_ENTRY)), false);
+  now = 98_000;
+  await h.emit({ type: "agent_settled" });
+  assert.equal(h.session.getEntries().length, entries.length);
+  await h.emit({ type: "session_start", reason: "reload" });
+  assert.equal((h.render().match(/took 48s/g) ?? []).length, 2);
+  h.ctx.ui.setToolsExpanded(true);
+  assert.doesNotMatch(h.render(), /elapsed|took/);
+});
+
+test("saved timing follows the active branch and survives compaction", async () => {
+  const h = await harness();
+  const first = h.session.appendMessage(assistant([call("a"), call("b")]));
+  h.session.appendMessage(result("a")); h.session.appendMessage(result("b"));
+  const completed = h.session.appendCustomEntry(TIMING_ENTRY, { version: 1, elapsedMs: 63_000, toolCallIds: ["a", "b"] });
+  h.addComponent("a"); h.addComponent("b");
+  await h.emit({ type: "session_start", reason: "resume" });
+  assert.match(h.render(), /Used 2 tools, took 1m 03s/);
+  h.session.branch(first);
+  await h.emit({ type: "session_tree", oldLeafId: completed, newLeafId: first });
+  assert.doesNotMatch(h.render(), /elapsed|took/);
+  h.session.branch(completed);
+  const id = h.session.appendCompaction("summary", first, 100);
+  const compactionEntry = h.session.getEntry(id)!;
+  if (compactionEntry.type !== "compaction") throw new Error("bad fixture");
+  await h.emit({ type: "session_compact", compactionEntry, fromExtension: false, reason: "manual", willRetry: false });
+  assert.match(h.render(), /Used 2 tools, took 1m 03s/);
+});
+
+test("automatic compaction preserves the active round and orderly shutdown freezes it", async (t) => {
+  const h = await harness();
+  let now = 0;
+  t.mock.method(performance, "now", () => now);
+  t.after(() => h.emit({ type: "session_shutdown", reason: "quit" }));
+  await h.emit({ type: "session_start", reason: "startup" });
+  await h.emit({ type: "agent_start" });
+  const first = await h.message(assistant([call("a")]));
+  await h.message(result("a"));
+  h.addComponent("a");
+  now = 30_000;
+  const id = h.session.appendCompaction("summary", first, 100);
+  const compactionEntry = h.session.getEntry(id)!;
+  if (compactionEntry.type !== "compaction") throw new Error("bad fixture");
+  await h.emit({ type: "session_compact", compactionEntry, fromExtension: false, reason: "overflow", willRetry: true });
+  await h.emit({ type: "agent_start" });
+  now = 36_000;
+  assert.match(h.render(), /36s elapsed/);
+  await h.emit({ type: "session_shutdown", reason: "reload" });
+  now = 90_000;
+  await h.emit({ type: "session_start", reason: "reload" });
+  assert.match(h.render(), /took 36s/);
+});
+
+test("a queued user prompt gets its own duration without ending the agent run", async (t) => {
+  const h = await harness();
+  let now = 0;
+  t.mock.method(performance, "now", () => now);
+  t.after(() => h.emit({ type: "session_shutdown", reason: "quit" }));
+  await h.emit({ type: "session_start", reason: "startup" });
+  await h.emit({ type: "agent_start" });
+  await h.message({ role: "user", content: "first", timestamp: 1 });
+  await h.message(assistant([call("a")]));
+  h.addComponent("a");
+  await h.message(result("a"));
+  now = 10_000;
+  await h.message({ role: "user", content: "second", timestamp: 2 });
+  await h.message(assistant([call("b")]));
+  h.addComponent("b");
+  now = 12_000;
+  assert.match(h.render(), /took 10s/);
+  assert.match(h.render(), /2s elapsed/);
+  await h.emit({ type: "agent_settled" });
+  assert.match(h.render(), /took 2s/);
 });
 
 test("unknown tools in resumed sessions gain original formatting when resolved later", async () => {
