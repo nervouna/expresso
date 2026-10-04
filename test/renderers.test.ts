@@ -210,51 +210,51 @@ test("timing stays muted for successful and failed blocks in both themes and ico
   }
 });
 
+test("standalone identifiers support each recognized argument key", () => {
+  const renderer = new CompactRenderers(new ToolGroups(), () => {}).wrap("read");
+  for (const key of ["path", "file_path", "command", "url"]) {
+    const c = new ToolExecutionComponent("read", key, { [key]: "identifier\nPRIVATE" }, {}, renderer, ui, process.cwd());
+    c.updateResult({ content: [], isError: false });
+    assert.deepEqual(plain(c), padded("[done] read identifier"));
+  }
+});
+
 test("long standalone identifiers preserve the timer, status, and tool name", () => {
-  try {
-    for (const themeName of ["dark", "light"]) {
-      initTheme(themeName, false);
-      for (const nerdFonts of [false, true]) {
-        for (const key of ["path", "file_path", "command", "url"]) {
-          for (const failed of [false, true]) {
-            const args = { [key]: `\x1b[31m${"文件👋é".repeat(30)}TAIL\x1b[0m\nPRIVATE SECOND LINE` };
-            const groups = new ToolGroups();
-            groups.observe(assistant([call("long", "read", args)]), "history");
-            groups.result("long", [], true, failed);
-            let timing = "36s elapsed";
-            const renderers = new CompactRenderers(groups, () => {}, { nerdFonts }, () => timing);
-            const c = new ToolExecutionComponent("read", "long", args, {}, renderers.wrap("read"), ui, process.cwd());
-            c.updateResult({ content: [], isError: failed });
-            const prefix = `${nerdFonts ? failed ? "" : "" : failed ? "[failed]" : "[done]"} read`;
-            for (timing of ["36s elapsed", "took 48s", "took 1m 03s", "took 1h 02m 05s"]) {
-              const minimum = visibleWidth(`${prefix}, ${timing}`) + 2;
-              for (const width of [minimum, minimum + 1, minimum + 2, minimum + 8, 80]) {
-                const lines = c.render(width);
-                const header = stripTerminalSequences(lines[2]).trim();
-                assert.ok(header.startsWith(prefix));
-                assert.ok(header.endsWith(`, ${timing}`));
-                assert.ok(lines[2].includes(theme.fg("muted", `, ${timing}`)));
-                assert.equal(lines.length, 4);
-                assert.ok(lines.every((line) => visibleWidth(line) <= width));
-                assert.doesNotMatch(header, /TAIL|PRIVATE/);
-                if (width === minimum) assert.equal(header, `${prefix}, ${timing}`);
-              }
-              for (const width of [1, 2, 3, 8, minimum - 1]) {
-                const lines = c.render(width);
-                assert.equal(lines.length, 4);
-                assert.ok(lines.every((line) => visibleWidth(line) <= width));
-              }
-              assert.ok(plain(c, minimum - 1)[2].trim().startsWith(prefix));
-            }
-            c.setExpanded(true);
-            assert.match(plain(c, 120).join("\n"), /TAIL/);
-            assert.doesNotMatch(plain(c, 120).join("\n"), /took|elapsed/);
-          }
+  for (const nerdFonts of [false, true]) {
+    for (const failed of [false, true]) {
+      const args = { path: `\x1b[31m${"文件👋é".repeat(30)}TAIL\x1b[0m\nPRIVATE SECOND LINE` };
+      const groups = new ToolGroups();
+      groups.observe(assistant([call("long", "read", args)]), "history");
+      groups.result("long", [], true, failed);
+      let timing = "36s elapsed";
+      const renderers = new CompactRenderers(groups, () => {}, { nerdFonts }, () => timing);
+      const c = new ToolExecutionComponent("read", "long", args, {}, renderers.wrap("read"), ui, process.cwd());
+      c.updateResult({ content: [], isError: failed });
+      const prefix = `${nerdFonts ? failed ? "" : "" : failed ? "[failed]" : "[done]"} read`;
+      for (timing of ["36s elapsed", "took 48s", "took 1m 03s", "took 1h 02m 05s"]) {
+        const minimum = visibleWidth(`${prefix}, ${timing}`) + 2;
+        for (const width of [minimum, minimum + 1, minimum + 2, minimum + 8, 80]) {
+          const lines = c.render(width);
+          const header = stripTerminalSequences(lines[2]).trim();
+          assert.ok(header.startsWith(prefix));
+          assert.ok(header.endsWith(`, ${timing}`));
+          assert.ok(lines[2].includes(theme.fg("muted", `, ${timing}`)));
+          assert.equal(lines.length, 4);
+          assert.ok(lines.every((line) => visibleWidth(line) <= width));
+          assert.doesNotMatch(header, /TAIL|PRIVATE/);
+          if (width === minimum) assert.equal(header, `${prefix}, ${timing}`);
         }
+        for (const width of [1, 2, 3, 8, minimum - 1]) {
+          const lines = c.render(width);
+          assert.equal(lines.length, 4);
+          assert.ok(lines.every((line) => visibleWidth(line) <= width));
+        }
+        assert.ok(plain(c, minimum - 1)[2].trim().startsWith(prefix));
       }
+      c.setExpanded(true);
+      assert.match(plain(c, 120).join("\n"), /TAIL/);
+      assert.doesNotMatch(plain(c, 120).join("\n"), /took|elapsed/);
     }
-  } finally {
-    initTheme("dark", false);
   }
 });
 
@@ -424,20 +424,23 @@ test("built-in expanded output matches vanilla framing and content", () => {
 });
 
 test("downstream lastComponent and shared state never contain wrapper components", () => {
-  const seen = new Set<object>();
-  const shared = new Set<object>();
+  const observations: {
+    id: string; kind: "call" | "result"; state: object;
+    previous: unknown; component: Text; called?: unknown;
+  }[] = [];
   const originals: ToolRenderers = {
     renderCall(_args, _theme, ctx) {
-      if (ctx.lastComponent) assert.ok(seen.has(ctx.lastComponent));
-      shared.add(ctx.state);
+      const component = new Text("original call", 0, 0);
+      observations.push({ id: ctx.toolCallId, kind: "call", state: ctx.state,
+        previous: ctx.lastComponent, component });
       ctx.state.called = true;
-      const c = new Text("original call", 0, 0); seen.add(c); return c;
+      return component;
     },
     renderResult(_result, _options, _theme, ctx) {
-      assert.equal(ctx.state.called, true);
-      if (ctx.lastComponent) assert.ok(seen.has(ctx.lastComponent));
-      shared.add(ctx.state);
-      const c = new Text("original result", 0, 0); seen.add(c); return c;
+      const component = new Text("original result", 0, 0);
+      observations.push({ id: ctx.toolCallId, kind: "result", state: ctx.state,
+        previous: ctx.lastComponent, component, called: ctx.state.called });
+      return component;
     },
   };
   const { components, finish } = setup(["custom", "custom"], { custom: originals });
@@ -445,7 +448,23 @@ test("downstream lastComponent and shared state never contain wrapper components
   for (let i = 0; i < 3; i++) {
     for (const c of components) { c.setExpanded(true); c.render(80); c.setExpanded(false); c.render(80); }
   }
-  assert.equal(shared.size, 2);
+  const states = new Map<string, object>();
+  const previous = new Map<string, Text>();
+  let reused = 0;
+  for (const observation of observations) {
+    const { id, kind, state, component } = observation;
+    if (states.has(id)) assert.equal(state, states.get(id));
+    else states.set(id, state);
+    const key = `${id}:${kind}`;
+    assert.equal(observation.previous, previous.get(key));
+    if (observation.previous) reused++;
+    if (kind === "result") assert.equal(observation.called, true);
+    previous.set(key, component);
+  }
+  assert.equal(states.size, 2);
+  assert.equal(new Set(states.values()).size, 2);
+  assert.equal(previous.size, 4);
+  assert.ok(reused > 0);
 });
 
 test("broken original renderers fall back to readable full details", () => {

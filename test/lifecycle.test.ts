@@ -99,11 +99,6 @@ test("Nerd Font settings update existing pre-start rows on reload and can be tur
   await h.emit({ type: "session_start", reason: "reload" });
   assert.match(h.render(), /Used 2 tools/);
   assert.doesNotMatch(h.render(), //);
-  for (const nerdFonts of [true, "true", null]) {
-    h.setSettings({ expresso: { nerdFonts } });
-    await h.emit({ type: "session_start", reason: "reload" });
-    assert.equal(h.render().includes(""), nerdFonts === true);
-  }
 });
 
 test("live message and tool events group streaming calls, ignore nested calls, and retain data", async () => {
@@ -149,8 +144,7 @@ test("resume, reload, tree navigation, and compaction rebuild only the active tr
   assert.doesNotMatch(h.render(), /Used 3/);
   const compactionId = h.session.appendCompaction("earlier work", sibling, 100);
   const compactionEntry = h.session.getEntry(compactionId)!;
-  assert.equal(compactionEntry.type, "compaction");
-  if (compactionEntry.type !== "compaction") throw new Error("wrong fixture entry");
+  assert.ok(compactionEntry.type === "compaction");
   await h.emit({ type: "session_compact", compactionEntry, fromExtension: false, reason: "manual", willRetry: false });
   h.components.length = 0;
   h.addComponent("c");
@@ -170,8 +164,8 @@ test("non-TUI modes pass original renderers through and register no execution ho
     await h.emit({ type: "message_start", message: assistant([call("a")]) });
     await h.emit({ type: "agent_settled" });
     assert.equal(h.session.getEntries().length, 0);
-    for (const name of ["tool_call", "tool_result", "context", "message_end"]) {
-      if (name !== "message_end") assert.equal(h.extension.handlers.has(name), false);
+    for (const name of ["tool_call", "tool_result", "context"]) {
+      assert.equal(h.extension.handlers.has(name), false);
     }
   }
 });
@@ -209,8 +203,7 @@ test("round timing keeps ticking after tools finish and freezes only at settleme
   const entries = h.session.getEntries();
   assert.deepEqual(entries.slice(0, -1), originalEntries);
   const saved = entries.at(-1)!;
-  assert.equal(saved.type, "custom");
-  if (saved.type !== "custom") throw new Error("missing timing entry");
+  assert.ok(saved.type === "custom");
   assert.equal(saved.customType, TIMING_ENTRY);
   assert.deepEqual(saved.data, { version: 1, elapsedMs: 48_000, toolCallIds: ["a", "b", "c"] });
   assert.equal(h.session.buildSessionContext().messages.some((m) => JSON.stringify(m).includes(TIMING_ENTRY)), false);

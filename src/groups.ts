@@ -4,7 +4,6 @@ type Message = MessageStartEvent["message"];
 type Slot = { boundary: boolean; ids: string[] };
 export type ToolRow = {
   id: string;
-  name: string;
   pending: boolean;
   error: boolean;
   image: boolean;
@@ -73,7 +72,7 @@ export class ToolGroups {
     for (const call of calls) {
       if (!this.rows.has(call.id)) {
         const row: ToolRow = {
-          id: call.id, name: call.name, pending: true, error: false,
+          id: call.id, pending: true, error: false,
           image: false, group: [], listeners: this.listeners.get(call.id) ?? new Set(),
         };
         row.group = [row];
