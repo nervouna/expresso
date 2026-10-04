@@ -49,21 +49,34 @@ Expresso targets the Earendil Pi package named above and requires its `registerT
 
 Each visible compact block has one column of horizontal padding and one blank row above and below its single content line. Waiting, running, and successful calls use muted text on Pi's `toolPendingBg`, a subdued gray in the built-in dark and light themes. If any call failed, the block uses Pi's warning text color on a subtle warning-tinted background (12% warning color blended into the neutral background). Expanded details retain their original tool styling. Pi retains its normal blank separator before the block. Hidden members take no lines and add no padding. At widths of one or two columns, horizontal padding is omitted to keep the summary within the terminal.
 
-### Response timing
+### Timing
 
-Compact summaries share one timer for each response to a user prompt. It includes reasoning, tool execution, and the final answer. The duration updates once per second until Pi finishes the response, including any automatic retries or continuations.
+By default, each compact group shows its own wall-clock duration. Timing starts when the first tool in the group begins execution and stops when the last queued or running call finishes. Parallel calls do not double-count. A group with no started calls has no duration yet.
 
 ```text
-Using 3 tools (1 pending), 36s elapsed
-Used 3 tools, 42s elapsed
-Used 3 tools, took 48s
+Using 3 tools (1 pending), 6s elapsed
+Used 3 tools, took 8s
 ```
 
-Completed tool groups keep counting while the response is still running. Separate groups and image-producing calls in the same response show the same duration. Time stays muted, including on failed blocks, and does not appear in expanded details. Standalone calls reserve space for the duration by truncating the path or command first. If even the status, tool name, and duration cannot fit, the line truncates from the right, keeping the status first. Durations use seconds, minutes, or hours: `9s`, `1m 03s`, `1h 02m 05s`.
+Completed groups keep their fixed duration while the agent works on another group or writes the final answer. Adjacent calls can join a completed group in a later execution step. When that happens, its timer resumes and includes the gap between steps. Image-producing calls stay separate, with each resulting group timed from its own calls. Multiple groups can still tick if their tools are running concurrently.
 
-A queued follow-up or steering message starts a new timer when Pi begins handling it, ending the previous round. Time spent waiting in the input queue is excluded. Cancellation and orderly shutdown freeze the elapsed time so far.
+To use the previous response-wide timer, add this setting and run `/reload`:
 
-Expresso saves one hidden `expresso:round-timing` entry per tool-using round, containing tool-call IDs and elapsed time. This metadata never enters model context. Final durations survive resume, `/reload`, tree navigation, and compaction on the active branch. Older rounds without a timing entry show no duration; a process crash can also leave an unfinished round without one.
+```json
+{
+  "expresso": {
+    "timing": "response"
+  }
+}
+```
+
+Set `"timing": "group"` to return to group timing. Missing or invalid values default to `"group"`. Pi's effective settings apply, including trusted project overrides, as with `nerdFonts` below.
+
+Response timing includes reasoning, tool execution, and the final answer. All groups in a response share that duration and keep counting until Pi finishes, including automatic retries or continuations. A queued follow-up or steering message starts a new response timer when Pi begins handling it; queue time is excluded.
+
+Both modes update once per second. Cancellation and orderly shutdown freeze unfinished durations. Time stays muted, including on failed blocks, and does not appear in expanded details. Standalone calls reserve space for the duration by truncating the path or command first. If even the status, tool name, and duration cannot fit, the line truncates from the right, keeping the status first. Durations use seconds, minutes, or hours: `9s`, `1m 03s`, `1h 02m 05s`.
+
+Expresso saves one hidden `expresso:round-timing` entry per tool-using response. It stores the response duration and per-tool execution intervals, so either mode works after resume, `/reload`, tree navigation, or compaction on the active branch. This metadata never enters model context. Older entries containing only response timing show no duration in group mode. A process crash can also leave an unfinished response without saved timing.
 
 ### Nerd Font icons
 
@@ -124,7 +137,7 @@ npm run demo -- --live --nerd-fonts
 npm run demo -- --tui-mode regular
 ```
 
-The demo uses temporary Pi settings and session files, which it removes on exit. Your personal settings and sessions are untouched. Without `--live`, a warning about missing model credentials is expected in this isolated environment. The live demo uses a local mock provider and harmless wait tools. It creates two groups, including one failure, then pauses before finishing its answer so you can watch both timers continue. It needs no credentials and makes no network requests.
+The demo uses temporary Pi settings and session files, which it removes on exit. Your personal settings and sessions are untouched. Without `--live`, a warning about missing model credentials is expected in this isolated environment. The live demo uses a local mock provider and harmless wait tools. It creates two groups, including one failure, then pauses before finishing its answer so you can check that completed group timers stay fixed. Add `--response-timing` to watch the response-wide timers continue instead. It needs no credentials and makes no network requests.
 
 Check the following:
 
@@ -135,7 +148,7 @@ Check the following:
 5. `/reload` preserves the compact presentation and final duration. Resize the terminal and try both TUI modes.
 6. In fullscreen mode, click a summary to toggle details. Check your rebound expansion shortcut too, if you use one.
 
-For your normal working session, run `pi -e ./src/index.ts` and ask the agent to use several tools. Check that the count and pending/failure indicators update as calls arrive, that elapsed time keeps updating during the final answer, and that it freezes once the response ends.
+For your normal working session, run `pi -e ./src/index.ts` and ask the agent to use several tools. Check that the count and pending/failure indicators update as calls arrive, and that completed group durations stay fixed during the final answer. With `"timing": "response"`, durations should keep updating until the response ends.
 
 ## Development and checks
 
@@ -147,7 +160,7 @@ npm pack --dry-run   # Inspect the package contents
 
 The automated tests cover streaming updates, boundaries, failures and aborts, image splits, width handling, theme changes, downstream renderer reuse, HTML results, lifecycle restoration, and non-TUI passthrough. Timer tests cover duration formatting, shared clocks, queued prompts, retries, final metadata, branch restoration, compaction, and cleanup. Clock ticks do not invalidate expanded renderers. Compact styling and padding are checked in dark and light themes: non-failed blocks use Pi's neutral pending background, and failures use warning text with a subtle warning tint, including mixed pending/failed groups. Built-in expanded output is also compared against Pi's tool components.
 
-The PTY suite checks both fullscreen and regular modes with icons enabled and disabled, including Ctrl+O, image protocol output, changing the preference through `/reload`, and resizing. It also checks live timer updates, completion, cancellation, and saved durations using the offline mock provider. All checks use isolated settings and make no network requests. To check a different installed Pi binary:
+The PTY suite checks both fullscreen and regular modes with icons enabled and disabled, including Ctrl+O, image protocol output, changing the preference through `/reload`, and resizing. It also checks live timer updates in both timing modes, completion, cancellation, and saved durations using the offline mock provider. All checks use isolated settings and make no network requests. To check a different installed Pi binary:
 
 ```sh
 PI_BIN="$(command -v pi)" npm run test:tui

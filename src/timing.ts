@@ -5,6 +5,8 @@ export interface TimingRecord {
   version: 1;
   toolCallIds: string[];
   elapsedMs: number;
+  // Offsets from the response start; older version-1 records omit execution intervals.
+  tools?: { id: string; startedMs: number; endedMs: number }[];
 }
 
 type Round = {
@@ -13,6 +15,7 @@ type Round = {
   toolCallIds: Set<string>;
   prompted: boolean;
   responded: boolean;
+  tools: Map<string, { startedMs: number; endedMs?: number }>;
 };
 type Schedule = (tick: () => void) => () => void;
 
@@ -54,7 +57,7 @@ export class RoundTimings {
   start() {
     // Retries and automatic continuations can emit agent_start again before settlement.
     if (this.active) return;
-    this.active = { startedAt: this.now(), toolCallIds: new Set(), prompted: false, responded: false };
+    this.active = { startedAt: this.now(), toolCallIds: new Set(), prompted: false, responded: false, tools: new Map() };
     this.cancelTick = this.schedule(() => {
       if (this.active) this.redraw(this.active.toolCallIds);
     });
@@ -78,6 +81,38 @@ export class RoundTimings {
     }
   }
 
+  executionStart(id: string) {
+    const round = this.byTool.get(id);
+    if (!round || round !== this.active || round.tools.has(id)) return;
+    round.tools.set(id, { startedMs: Math.max(0, this.now() - round.startedAt) });
+    this.redraw(round.toolCallIds);
+  }
+
+  executionEnd(id: string) {
+    const round = this.byTool.get(id);
+    const tool = round?.tools.get(id);
+    if (!round || !tool || tool.endedMs !== undefined) return;
+    tool.endedMs = Math.max(tool.startedMs, this.now() - round.startedAt);
+    this.redraw(round.toolCallIds);
+  }
+
+  // Derive the span from current membership because streamed images can split a group.
+  groupLabel(rows: readonly { id: string; pending: boolean }[]): string | undefined {
+    const round = this.byTool.get(rows[0]?.id);
+    if (!round || rows.some((row) => this.byTool.get(row.id) !== round)) return undefined;
+    const tools = rows.flatMap((row) => {
+      const tool = round.tools.get(row.id);
+      return tool ? [tool] : [];
+    });
+    if (!tools.length) return undefined;
+    const running = round.elapsedMs === undefined && rows.some((row) => row.pending);
+    const start = Math.min(...tools.map((tool) => tool.startedMs));
+    const end = running ? this.now() - round.startedAt
+      : Math.max(...tools.map((tool) => tool.endedMs ?? tool.startedMs));
+    const duration = formatDuration(end - start);
+    return running ? `${duration} elapsed` : `took ${duration}`;
+  }
+
   label(toolCallId: string): string | undefined {
     const round = this.byTool.get(toolCallId);
     if (!round) return undefined;
@@ -99,9 +134,15 @@ export class RoundTimings {
     this.active = undefined;
     if (!round) return undefined;
     round.elapsedMs = Math.max(0, this.now() - round.startedAt);
+    for (const tool of round.tools.values()) tool.endedMs ??= round.elapsedMs;
     this.redraw(round.toolCallIds);
     if (round.toolCallIds.size === 0) return undefined;
-    return { version: 1, toolCallIds: [...round.toolCallIds], elapsedMs: round.elapsedMs };
+    const tools = [...round.tools].map(([id, tool]) => ({
+      id, startedMs: tool.startedMs, endedMs: tool.endedMs!,
+    }));
+    return { version: 1, toolCallIds: [...round.toolCallIds], elapsedMs: round.elapsedMs,
+      ...(tools.length ? { tools } : {}),
+    };
   }
 
   restore(entries: SessionEntry[], preserveActive = false) {
@@ -116,7 +157,16 @@ export class RoundTimings {
       const round: Round = {
         startedAt: 0, elapsedMs: entry.data.elapsedMs,
         toolCallIds: new Set(entry.data.toolCallIds), prompted: true, responded: true,
+        tools: new Map(),
       };
+      if (Array.isArray(entry.data.tools)) {
+        for (const tool of entry.data.tools) {
+          if (!tool || !round.toolCallIds.has(tool.id) ||
+            !Number.isFinite(tool.startedMs) || !Number.isFinite(tool.endedMs) ||
+            tool.startedMs < 0 || tool.endedMs < tool.startedMs || tool.endedMs > entry.data.elapsedMs) continue;
+          round.tools.set(tool.id, { startedMs: tool.startedMs, endedMs: tool.endedMs });
+        }
+      }
       for (const id of round.toolCallIds) this.byTool.set(id, round);
     }
     if (this.active) {

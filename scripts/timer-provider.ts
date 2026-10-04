@@ -44,7 +44,7 @@ export default function timerDemo(pi: ExtensionAPI) {
           stream.push({ type: "start", partial: output });
           await delay(600, undefined, { signal: options?.signal });
           if (step < 2) {
-            if (step === 1) addText("A second group shares the first group's response timer.");
+            if (step === 1) addText("A second group starts here.");
             for (let i = 0; i < 2; i++) {
               const contentIndex = output.content.length;
               const toolCall = {
@@ -58,7 +58,7 @@ export default function timerDemo(pi: ExtensionAPI) {
             }
             output.stopReason = "toolUse";
           } else {
-            addText("Tools finished; the response timer is still running.");
+            addText("Tools finished; group durations stay fixed while response timing continues.");
             await delay(3500, undefined, { signal: options?.signal });
             addText(" LIVE TIMER COMPLETE.");
             output.stopReason = "stop";

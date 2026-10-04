@@ -5,11 +5,11 @@ import { readOptions } from "../src/settings.ts";
 
 test("Nerd Fonts require an explicit boolean true and do not mutate settings", () => {
   for (const settings of [undefined, null, {}, [], true, "true", { expresso: null }, { expresso: [] }]) {
-    assert.deepEqual(readOptions(settings), { nerdFonts: false });
+    assert.deepEqual(readOptions(settings), { nerdFonts: false, timing: "group" });
   }
   for (const nerdFonts of [true, false, undefined, "true", "false", 0, 1, null, {}, []]) {
     const settings = Object.freeze({ expresso: Object.freeze({ nerdFonts }) });
-    assert.deepEqual(readOptions(settings), { nerdFonts: nerdFonts === true });
+    assert.deepEqual(readOptions(settings), { nerdFonts: nerdFonts === true, timing: "group" });
   }
 });
 

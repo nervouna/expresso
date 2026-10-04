@@ -16,7 +16,7 @@ async function harness() {
   const loaded = await loadExtensions([resolve("src/index.ts")], process.cwd());
   assert.deepEqual(loaded.errors, []);
   const extension = loaded.extensions[0];
-  const settings = SettingsManager.inMemory();
+  const settings = SettingsManager.inMemory({ expresso: { timing: "response" } } as Parameters<typeof SettingsManager.inMemory>[0]);
   loaded.runtime.getSettings = () => settings.getSettings();
   const session = SessionManager.inMemory(process.cwd());
   loaded.runtime.appendEntry = (type, data) => { session.appendCustomEntry(type, data); };
@@ -214,6 +214,39 @@ test("round timing keeps ticking after tools finish and freezes only at settleme
   assert.equal((h.render().match(/took 48s/g) ?? []).length, 2);
   h.ctx.ui.setToolsExpanded(true);
   assert.doesNotMatch(h.render(), /elapsed|took/);
+});
+
+test("default group timing freezes completed bars and restores both timing modes", async (t) => {
+  const h = await harness();
+  h.setSettings({ expresso: { timing: "group" } });
+  let now = 0;
+  t.mock.method(performance, "now", () => now);
+  t.after(() => h.emit({ type: "session_shutdown", reason: "quit" }));
+  await h.emit({ type: "session_start", reason: "startup" });
+  await h.emit({ type: "agent_start" });
+  await h.message(assistant([call("a"), call("b")]));
+  h.addComponent("a"); h.addComponent("b");
+  assert.doesNotMatch(h.render(), /elapsed|took/);
+  now = 10_000;
+  for (const id of ["a", "b"]) {
+    await h.emit({ type: "tool_execution_start", toolCallId: id, toolName: "read", args: {} });
+  }
+  now = 13_000;
+  await h.emit({ type: "tool_execution_end", toolCallId: "a", toolName: "read", result: { content: [] }, isError: false });
+  await h.message(result("a"));
+  assert.match(h.render(), /3s elapsed/);
+  now = 15_000;
+  await h.message(result("b"));
+  await h.message(assistant([text("Final answer")], "stop"));
+  now = 45_000;
+  assert.match(h.render(), /Used 2 tools, took 5s/);
+  assert.doesNotMatch(h.render(), /elapsed/);
+  await h.emit({ type: "agent_settled" });
+  await h.emit({ type: "session_start", reason: "reload" });
+  assert.match(h.render(), /Used 2 tools, took 5s/);
+  h.setSettings({ expresso: { timing: "response" } });
+  await h.emit({ type: "session_start", reason: "reload" });
+  assert.match(h.render(), /Used 2 tools, took 45s/);
 });
 
 test("saved timing follows the active branch and survives compaction", async () => {

@@ -20,7 +20,8 @@ export default function expresso(pi: ExtensionAPI) {
   // Pi rebuilds the transcript before session_start during /reload.
   const renderers = new CompactRenderers(groups, () => {
     if (ui) ui.setToolsExpanded(!ui.getToolsExpanded());
-  }, options, (id) => timings.label(id), (id) => timings.activityFrame(id));
+  }, options, (id) => options.timing === "response" ? timings.label(id)
+    : timings.groupLabel(groups.rows.get(id)?.group ?? []), (id) => timings.activityFrame(id));
 
   const restore = (event: { type: string }, ctx: ExtensionContext) => {
     groups.reset();
@@ -77,6 +78,10 @@ export default function expresso(pi: ExtensionAPI) {
     if (!enabled) return;
     timings.observe(event.message);
     groups.observe(event.message, "end");
+    if (event.message.role === "toolResult") timings.executionEnd(event.message.toolCallId);
+  });
+  pi.on("tool_execution_start", (event) => {
+    if (enabled && !event.parentToolCallId) timings.executionStart(event.toolCallId);
   });
   pi.on("tool_execution_update", (event) => {
     if (enabled && !event.parentToolCallId) {
@@ -86,6 +91,7 @@ export default function expresso(pi: ExtensionAPI) {
   pi.on("tool_execution_end", (event) => {
     if (enabled && !event.parentToolCallId) {
       groups.result(event.toolCallId, event.result?.content, true, event.isError);
+      timings.executionEnd(event.toolCallId);
     }
   });
   pi.registerToolRenderer((name, next) => {

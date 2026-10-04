@@ -18,10 +18,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def run(mode, nerd_fonts, live=False):
+def run(mode, nerd_fonts, live=False, response_timing=False):
     fixture = json.loads(subprocess.check_output(
         ["node", "--import", "tsx", "scripts/demo.ts", "--prepare-only", "--tui-mode", mode,
-         *(["--nerd-fonts"] if nerd_fonts else []), *(["--live"] if live else [])],
+         *(["--nerd-fonts"] if nerd_fonts else []), *(["--live"] if live else []),
+         *(["--response-timing"] if response_timing else [])],
         cwd=ROOT, text=True,
     ))
     master, slave = pty.openpty()
@@ -110,10 +111,15 @@ def run(mode, nerd_fonts, live=False):
             running = drain(timeout=25, marker=b"LIVE TIMER COMPLETE")
             plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", running)
             assert b"Using 2 tools" in plain
-            assert len(set(re.findall(rb"(\d+)s elapsed", plain))) >= 3, "Live duration did not advance"
+            assert len(set(re.findall(rb"(\d+)s elapsed", plain))) >= (3 if response_timing else 2), \
+                "Live duration did not advance"
             after_tools = plain[plain.index(b"Tools finished;"):]
-            assert len(set(re.findall(rb"Used 2 tools[^\r\n]*?, (\d+)s elapsed", after_tools))) >= 2, \
-                "Timer stopped before the final answer finished"
+            if response_timing:
+                assert len(set(re.findall(rb"Used 2 tools[^\r\n]*?, (\d+)s elapsed", after_tools))) >= 2, \
+                    "Timer stopped before the final answer finished"
+            else:
+                assert not re.search(rb"Used 2 tools[^\r\n]*?elapsed", after_tools), \
+                    "Completed groups kept ticking during the final answer"
             assert b"EXPRESSO_LIVE_DETAIL" not in running
 
             def records():
@@ -123,7 +129,10 @@ def run(mode, nerd_fonts, live=False):
 
             saved = records()
             assert len(saved) == 1 and len(saved[0]["toolCallIds"]) == 4, "Groups did not share one round"
-            final_label = f"took {int(saved[0]['elapsedMs'] // 1000)}s".encode()
+            duration = saved[0]['elapsedMs'] if response_timing else max(
+                tool['endedMs'] for tool in saved[0]['tools'][:2]) - min(
+                tool['startedMs'] for tool in saved[0]['tools'][:2])
+            final_label = f"took {int(duration // 1000)}s".encode()
             assert final_label in running, "Final duration was not rendered"
             os.write(master, b"\x0f")
             drain(marker=b"EXPRESSO_LIVE_DETAIL")
@@ -134,7 +143,7 @@ def run(mode, nerd_fonts, live=False):
             assert records() == saved, "Reload changed the frozen duration"
 
             os.write(master, b"Run the offline timer demo again.\r")
-            drain(timeout=2.5, marker=b"Using 2 tools")
+            drain(timeout=1.2, marker=b"Using 2 tools")
             os.write(master, b"\x1b")
             drain(timeout=8, marker=b"took ")
             stopped = records()
@@ -144,7 +153,7 @@ def run(mode, nerd_fonts, live=False):
         assert b"Extension Error" not in transcript
         assert b"Failed to load extension" not in transcript
         checks = "live ticks, final duration, abort, reload" if live else "collapsed, Ctrl+O, images, reload, settings toggle, resize"
-        print(f"PASS {mode}, nerdFonts={nerd_fonts}: {checks}")
+        print(f"PASS {mode}, nerdFonts={nerd_fonts}, responseTiming={response_timing}: {checks}")
     except Exception:
         with tempfile.NamedTemporaryFile(prefix=f"pi-expresso-{mode}-", suffix=".ansi", delete=False) as log:
             log.write(transcript)
@@ -166,3 +175,4 @@ if __name__ == "__main__":
         for use_nerd_fonts in (False, True):
             run(tui_mode, use_nerd_fonts)
         run(tui_mode, tui_mode == "fullscreen", live=True)
+        run(tui_mode, tui_mode == "fullscreen", live=True, response_timing=True)

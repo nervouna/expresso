@@ -11,7 +11,8 @@ const directory = mkdtempSync(join(tmpdir(), "pi-expresso-demo-"));
 const agentDir = join(directory, "agent");
 mkdirSync(agentDir);
 writeFileSync(join(agentDir, "settings.json"), JSON.stringify({
-  quietStartup: true, theme: "dark", expresso: { nerdFonts: process.argv.includes("--nerd-fonts") },
+  quietStartup: true, theme: "dark", expresso: { nerdFonts: process.argv.includes("--nerd-fonts"),
+    timing: process.argv.includes("--response-timing") ? "response" : "group" },
 }));
 writeFileSync(join(directory, "sample.txt"), "before\n");
 
@@ -77,12 +78,14 @@ add([
   call("right1"), call("right2"),
 ]);
 heading("End of fixture. Ctrl+O toggles details; /reload checks extension reload.");
-session.appendCustomEntry(TIMING_ENTRY, { version: 1, toolCallIds, elapsedMs: 48_000 });
+session.appendCustomEntry(TIMING_ENTRY, { version: 1, toolCallIds, elapsedMs: 48_000,
+  tools: toolCallIds.map((id) => ({ id, startedMs: 0, endedMs: 48_000 })),
+});
 
 const args = [
   "--offline", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-approve",
   "-e", resolve("src/index.ts"), "--session", session.getSessionFile()!,
-  ...process.argv.slice(2).filter((arg) => !["--prepare-only", "--nerd-fonts", "--live"].includes(arg)),
+  ...process.argv.slice(2).filter((arg) => !["--prepare-only", "--nerd-fonts", "--live", "--response-timing"].includes(arg)),
   ...(process.argv.includes("--live") ? [
     "-e", resolve("scripts/timer-provider.ts"), "--provider", "expresso-demo", "--model", "timer", "--thinking", "off",
   ] : []),
