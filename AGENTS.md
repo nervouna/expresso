@@ -15,4 +15,8 @@ Run npm run verify for code changes. For rendering or lifecycle changes, also ru
 the PTY checks documented under README.md "Development and checks". Report any
 checks you could not run.
 
+For terminal-color fixes, add regression assertions for effective foreground and
+background at the affected characters, including truncation markers and padding.
+Checking stripped text or the presence of color escape sequences is insufficient.
+
 Do not commit or push unless requested.
