@@ -3,12 +3,14 @@ import {
   type ExtensionAPI,
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { registerFooter } from "./footer.ts";
 import { ToolGroups } from "./groups.ts";
 import { CompactRenderers } from "./renderers.ts";
 import { readOptions } from "./settings.ts";
 import { RoundTimings, TIMING_ENTRY, type TimingRecord } from "./timing.ts";
 
 export default function expresso(pi: ExtensionAPI) {
+  registerFooter(pi);
   const groups = new ToolGroups();
   const timings = new RoundTimings((ids) => groups.refresh(ids));
   const persist = (record: TimingRecord | undefined) => {

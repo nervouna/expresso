@@ -90,18 +90,32 @@ def run(mode, nerd_fonts, live=False, response_timing=False):
         settings_path = Path(fixture["agentDir"]) / "settings.json"
         settings = json.loads(settings_path.read_text())
         settings["expresso"]["nerdFonts"] = not nerd_fonts
+        settings["expresso"]["footer"] = True
         settings_path.write_text(json.dumps(settings))
         os.write(master, b"/reload\r")
         changed = drain(marker=b"Used 3 tools")
         assert_style(changed, not nerd_fonts)
+        def has_progress(data):
+            plain = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", data.decode("utf-8", errors="replace"))
+            return re.search(r"[━─\uee00-\uee05]{10} (?:\?|\d+(?:\.\d+)?)%", plain) is not None
+
+        assert has_progress(changed), "Full footer progress bar is missing"
         assert b"EXPRESSO_DETAIL_" not in changed
         for columns in (32, 120):
             fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 100, columns, columns * 8, 1600))
             os.kill(process.pid, signal.SIGWINCH)
             resized = drain(timeout=3)
+            if columns == 120:
+                assert has_progress(resized), "Resize did not restore the full footer"
             if columns == 32:
+                assert not has_progress(resized), "Compact footer still shows the progress bar"
                 plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", resized)
                 assert re.search(rb"edit [^\r\n]*, took 48s", plain), "Long standalone path hid the timer"
+        settings["expresso"]["footer"] = False
+        settings_path.write_text(json.dumps(settings))
+        os.write(master, b"/reload\r")
+        restored = drain(marker=b"Used 3 tools")
+        assert not has_progress(restored), "Disabling the footer did not restore vanilla Pi"
         if live:
             settings["expresso"]["nerdFonts"] = nerd_fonts
             settings_path.write_text(json.dumps(settings))
