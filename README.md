@@ -10,6 +10,14 @@ Used 3 tools, took 48s
 [done] read src/index.ts, took 48s
 ```
 
+## Install
+
+```sh
+pi install git:github.com/nervouna/expresso
+```
+
+Restart Pi or run `/reload` to load the extension.
+
 ## Try it
 
 From this checkout:
