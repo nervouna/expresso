@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ToolExecutionComponent, initTheme, type ToolRenderers } from "@earendil-works/pi-coding-agent";
-import { Text, setCapabilities, stripTerminalSequences, visibleWidth, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { Text, setCapabilities, stripTerminalSequences, truncateToWidth, visibleWidth, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { createAllToolRenderers } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/renderers/index.js";
 import { createToolHtmlRenderer } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/export-html/tool-renderer.js";
 import { theme } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
@@ -13,6 +13,7 @@ initTheme("dark", false);
 setCapabilities({ images: null, trueColor: true, hyperlinks: true });
 const ui = { requestRender() {} } as TUI;
 const plain = (component: ToolExecutionComponent, width = 100) => component.render(width).map(stripTerminalSequences);
+const padded = (label: string, width = 100) => ["", " ".repeat(width), ` ${label}`.padEnd(width), " ".repeat(width)];
 const output = { content: [text("PRIVATE RESULT\nsecond line")], isError: false };
 const mouse = (y: number): TuiMouseEvent => ({ type: "click", button: "left", x: 1, y, screenX: 1, screenY: y, width: 100, height: 20, shift: false, alt: false, ctrl: false });
 
@@ -37,37 +38,98 @@ test("real Pi components collapse a run to one content line and expand directly"
   const { components, finish } = setup();
   finish(0); finish(1);
   await tick();
-  assert.deepEqual(components.flatMap((c) => plain(c)), ["", "Used 2 tools..."]);
+  assert.deepEqual(components.flatMap((c) => plain(c)), padded("Used 2 tools..."));
   for (const c of components) c.setExpanded(true);
   const expanded = components.flatMap((c) => plain(c)).join("\n");
   assert.match(expanded, /PRIVATE RESULT/);
   assert.match(expanded, /PRIVATE COMMAND/);
   assert.match(expanded, /PRIVATE CONTENT/);
   for (const c of components) c.setExpanded(false);
-  assert.deepEqual(components.flatMap((c) => plain(c)), ["", "Used 2 tools..."]);
+  assert.deepEqual(components.flatMap((c) => plain(c)), padded("Used 2 tools..."));
 });
 
 test("standalone collapsed calls never leak argument bodies or output", () => {
   for (const name of ["read", "bash", "write", "edit", "codemode", "mcp__server__tool"]) {
     const { components: [c], finish } = setup([name]);
     finish(0);
-    assert.equal(plain(c).length, 2);
-    assert.match(plain(c)[1], /\[done\]/);
+    assert.equal(plain(c).length, 4);
+    assert.match(plain(c)[2], /\[done\]/);
     assert.doesNotMatch(plain(c).join("\n"), /PRIVATE/);
   }
 });
 
 test("pending, partial, completed, and failed runs update their shared summary", async () => {
   const { components, finish } = setup();
-  assert.match(plain(components[0])[1], /Using 2 tools.*2 pending/);
+  assert.match(plain(components[0])[2], /Using 2 tools.*2 pending/);
   finish(1, { content: [text("streaming")], isError: false }, true);
   finish(0);
   await tick();
-  assert.match(plain(components[0])[1], /1 pending/);
+  assert.match(plain(components[0])[2], /1 pending/);
   finish(1, { content: [text("private failure detail")], isError: true });
   await tick();
-  assert.match(plain(components[0])[1], /1 failed/);
-  assert.doesNotMatch(plain(components[0])[1], /private failure/);
+  assert.match(plain(components[0])[2], /1 failed/);
+  assert.doesNotMatch(plain(components[0])[2], /private failure/);
+});
+
+test("compact backgrounds and padding match vanilla Pi in dark and light themes", () => {
+  const check = (components: ToolExecutionComponent[], label: string, status: "pending" | "success" | "error") => {
+    const color = status === "pending" ? "warning" : status === "error" ? "error" : "muted";
+    const background = status === "pending" ? "toolPendingBg" : status === "error" ? "toolErrorBg" : "toolSuccessBg";
+    const vanilla = new ToolExecutionComponent("reference", "reference", {}, {}, {
+      renderCall: (_args, currentTheme) => ({
+        render: (width) => [currentTheme.fg(color, truncateToWidth(label, width))],
+        invalidate() {},
+      }),
+      renderResult: () => ({ render: () => [], invalidate() {} }),
+    }, ui, process.cwd());
+    vanilla.updateResult({ content: [], isError: status === "error" }, status === "pending");
+    for (const width of [3, 8, 20, 80, 120]) {
+      const lines = components.flatMap((c) => c.render(width));
+      assert.deepEqual(lines, vanilla.render(width));
+      assert.equal(lines.length, 4);
+      assert.equal(lines[1], theme.bg(background, " ".repeat(width)));
+      assert.equal(lines[3], lines[1]);
+      assert.deepEqual(components.slice(1).flatMap((c) => c.render(width)), []);
+    }
+  };
+  try {
+    for (const name of ["dark", "light"]) {
+      initTheme(name, false);
+      const solo = setup(["read"]);
+      check(solo.components, "[pending] read 0.txt", "pending");
+      solo.components[0].markExecutionStarted();
+      check(solo.components, "[running] read 0.txt", "pending");
+      solo.finish(0);
+      check(solo.components, "[done] read 0.txt", "success");
+      solo.finish(0, { ...output, isError: true });
+      check(solo.components, "[failed] read 0.txt", "error");
+
+      const group = setup();
+      check(group.components, "Using 2 tools... (2 pending)", "pending");
+      group.finish(1);
+      check(group.components, "Using 2 tools... (1 pending)", "pending");
+      group.finish(1, { ...output, isError: true });
+      check(group.components, "[1 failed] Using 2 tools... (1 pending)", "error");
+      group.finish(0);
+      check(group.components, "[1 failed] Used 2 tools...", "error");
+      group.finish(1);
+      check(group.components, "Used 2 tools...", "success");
+    }
+  } finally {
+    initTheme("dark", false);
+  }
+});
+
+test("compact padding and headers remain clickable across the full block width", () => {
+  for (const y of [1, 2, 3]) {
+    for (const x of [0, 1, 99]) {
+      const { components, finish } = setup();
+      finish(0); finish(1);
+      components[0].render(100);
+      assert.equal(components[0].handleMouse({ ...mouse(y), x, screenX: x })?.handled, true);
+      assert.match(plain(components[1]).join("\n"), /PRIVATE RESULT/);
+    }
+  }
 });
 
 test("header clicks use the vanilla global toggle", () => {
@@ -183,7 +245,7 @@ test("headers handle missing arguments, ANSI, Unicode, newlines, and narrow widt
     const c = new ToolExecutionComponent("tool", "unknown", args, {}, renderer, ui, process.cwd());
     for (const width of [1, 2, 3, 8, 20, 80]) {
       const lines = c.render(width);
-      assert.equal(lines.length, 2);
+      assert.equal(lines.length, 4);
       assert.ok(lines.every((line) => visibleWidth(line) <= width));
       assert.doesNotMatch(lines.join("\n"), /PRIVATE/);
     }
@@ -201,8 +263,8 @@ test("inline image sequences survive collapse, expansion, and regrouping unchang
     const imageLines = (c: ToolExecutionComponent) => c.render(100).filter((line) => line.includes("\x1b]1337;File="));
     const collapsed = imageLines(components[1]);
     assert.equal(collapsed.length, 1);
-    assert.match(plain(components[0])[1], /\[done\] read/);
-    assert.match(plain(components[2])[1], /Used 2 tools/);
+    assert.match(plain(components[0])[2], /\[done\] read/);
+    assert.match(plain(components[2])[2], /Used 2 tools/);
     components[1].setExpanded(true);
     assert.deepEqual(imageLines(components[1]), collapsed);
     components[1].setExpanded(false);

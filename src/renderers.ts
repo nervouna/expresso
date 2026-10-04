@@ -89,8 +89,15 @@ class Slot implements Component {
         // Put status first so narrow terminals do not truncate a failure marker.
         label = `[${status}] ${label}`;
       }
-      const color = errors || context.isError ? "error" : pending ? "warning" : "muted";
-      return [state.theme.fg(color, truncateToWidth(label, width))];
+      const failed = errors > 0 || context.isError;
+      const color = failed ? "error" : pending ? "warning" : "muted";
+      const background = failed ? "toolErrorBg" : pending ? "toolPendingBg" : "toolSuccessBg";
+      const box = new Box(width > 2 ? 1 : 0, 1, (line) => state.theme.bg(background, line));
+      box.addChild({
+        render: (contentWidth) => [state.theme.fg(color, truncateToWidth(label, contentWidth))],
+        invalidate() {},
+      });
+      return box.render(width);
     }
 
     this.prepare();

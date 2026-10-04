@@ -1,6 +1,6 @@
 # Expresso
 
-A Pi extension that collapses consecutive tool calls into one terminal line. Tested with `@earendil-works/pi-coding-agent` 1.0.2.
+A Pi extension that collapses consecutive tool calls into a one-line summary with vanilla Pi tool-message backgrounds and padding. Tested with `@earendil-works/pi-coding-agent` 1.0.2.
 
 ```text
 Used 3 tools...
@@ -39,7 +39,7 @@ Expresso targets the Earendil Pi package named above and requires its `registerT
 - Image-producing calls stay separate, with groups split on both sides. Pi still draws the images using its existing size, protocol, and visibility settings. Expresso never removes image data or changes your image preference.
 - Built-in tools, codemode, extension tools, and MCP tools use the same grouping logic. Tools called inside codemode count as part of the codemode invocation unless Pi gives them their own transcript rows.
 
-Pi retains its normal blank separator before each visible tool block. The collapsed group itself has one content line; hidden members take no lines.
+Each visible compact block uses Pi's themed tool background, one column of horizontal padding, and one blank row above and below its single content line. The background shows failure if any call failed, otherwise pending while calls remain, then success. Pi retains its normal blank separator before the block. Hidden members take no lines and add no padding. At widths of one or two columns, horizontal padding is omitted to keep the summary within the terminal.
 
 ### Expansion controls
 
@@ -74,8 +74,8 @@ The demo uses temporary Pi settings and session files, which it removes on exit.
 
 Check the following:
 
-1. The first three calls share one `Used 3 tools...` line, even though they came from two execution steps.
-2. The standalone edit occupies one line. The following group shows a failure marker.
+1. The first three calls share one padded `Used 3 tools...` summary with Pi's success background, even though they came from two execution steps.
+2. The standalone edit has one content line with the same padding. The following group shows a failure marker and Pi's error background.
 3. Ctrl+O reveals arguments, output, and the edit diff. Press it again to restore the summaries.
 4. The colored image remains between two groups, each containing two calls, if your terminal supports Pi's image protocol.
 5. `/reload` preserves the compact presentation. Resize the terminal and try both TUI modes.
@@ -91,7 +91,7 @@ npm run test:tui     # Real CLI smoke tests; requires Python 3 and a POSIX PTY
 npm pack --dry-run   # Inspect the package contents
 ```
 
-The automated tests cover streaming updates, boundaries, failures and aborts, image splits, width handling, theme changes, downstream renderer reuse, HTML results, lifecycle restoration, and non-TUI passthrough. Built-in expanded output is compared against Pi's own tool components.
+The automated tests cover streaming updates, boundaries, failures and aborts, image splits, width handling, theme changes, downstream renderer reuse, HTML results, lifecycle restoration, and non-TUI passthrough. Compact backgrounds and padding are compared against Pi's own tool components in dark and light themes, including mixed pending/failed groups. Built-in expanded output is also compared against Pi's tool components.
 
 The PTY suite checks both fullscreen and regular modes, including Ctrl+O, image protocol output, `/reload`, and resizing. It uses isolated settings and no model requests. To check a different installed Pi binary:
 
