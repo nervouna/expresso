@@ -7,9 +7,10 @@ For Pi integration changes, check the documentation and typings for the installe
 @earendil-works/pi-coding-agent package. Do not assume another Pi version has the
 same API.
 
-Before refactoring renderers or lifecycle handling, read the related source
-comments and tests in test/renderers.test.ts, test/lifecycle.test.ts, and
-test/timing.test.ts. They cover host ordering dependencies that are easy to break.
+Before refactoring renderers, timing, or lifecycle handling, read the related
+source comments and tests in test/renderers.test.ts, test/lifecycle.test.ts,
+test/timing.test.ts, and test/group-timing.test.ts. They cover host ordering
+dependencies and timing invariants that are easy to break.
 
 Run npm run verify for code changes. For rendering or lifecycle changes, also run
 the PTY checks documented under README.md "Development and checks". Report any
