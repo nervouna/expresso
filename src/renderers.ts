@@ -1,6 +1,6 @@
 import type { Theme, ToolRenderers } from "@earendil-works/pi-coding-agent";
 import {
-  Box, Spacer, Text, mixColors, stripTerminalSequences, truncateToWidth,
+  Box, Spacer, Text, mixColors, stripTerminalSequences, truncateToWidth, visibleWidth,
   type Component, type TuiMouseEvent,
 } from "@earendil-works/pi-tui";
 import { ToolGroups, type Redraw } from "./groups.ts";
@@ -87,6 +87,7 @@ class Slot implements Component {
       const pending = group?.filter((entry) => entry.pending).length ?? Number(context.isPartial);
       const errors = group?.filter((entry) => entry.error).length ?? Number(context.isError);
       let label: string;
+      let detail = "";
       if (group && group.length > 1) {
         label = `${pending ? "Using" : "Used"} ${group.length} tools`;
         if (this.options.nerdFonts) {
@@ -99,8 +100,7 @@ class Slot implements Component {
         }
       } else {
         label = oneLine(this.name);
-        const detail = identifier(state.args);
-        if (detail) label += ` ${detail}`;
+        detail = identifier(state.args);
         const status = errors || context.isError ? "failed"
           : pending ? context.executionStarted ? "running" : "pending" : "done";
         // Put status first so narrow terminals do not truncate a failure marker.
@@ -115,9 +115,17 @@ class Slot implements Component {
         ? state.theme.style(line, { bg: warningBackground })
         : state.theme.bg("toolPendingBg", line));
       const timing = this.timingLabel(context.toolCallId);
-      const summary = label + (timing ? state.theme.fg("muted", `, ${timing}`) : "");
+      const suffix = timing ? state.theme.fg("muted", `, ${timing}`) : "";
       box.addChild({
-        render: (contentWidth) => [state.theme.fg(color, truncateToWidth(summary, contentWidth))],
+        render: (contentWidth) => {
+          let shownDetail = detail;
+          const reserved = visibleWidth(label) + visibleWidth(suffix);
+          if (detail && timing && reserved <= contentWidth) {
+            shownDetail = truncateToWidth(detail, Math.max(0, contentWidth - reserved - 1));
+          }
+          const summary = label + (shownDetail ? ` ${shownDetail}` : "") + suffix;
+          return [state.theme.fg(color, truncateToWidth(summary, contentWidth))];
+        },
         invalidate() {},
       });
       return box.render(width);

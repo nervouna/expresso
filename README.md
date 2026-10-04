@@ -51,7 +51,7 @@ Used 3 tools, 42s elapsed
 Used 3 tools, took 48s
 ```
 
-Completed tool groups keep counting while the response is still running. Separate groups and image-producing calls in the same response show the same duration. Time stays muted, including on failed blocks, and does not appear in expanded details. Durations use seconds, minutes, or hours: `9s`, `1m 03s`, `1h 02m 05s`.
+Completed tool groups keep counting while the response is still running. Separate groups and image-producing calls in the same response show the same duration. Time stays muted, including on failed blocks, and does not appear in expanded details. Standalone calls reserve space for the duration by truncating the path or command first. If even the status, tool name, and duration cannot fit, the line truncates from the right, keeping the status first. Durations use seconds, minutes, or hours: `9s`, `1m 03s`, `1h 02m 05s`.
 
 A queued follow-up or steering message starts a new timer when Pi begins handling it, ending the previous round. Time spent waiting in the input queue is excluded. Cancellation and orderly shutdown freeze the elapsed time so far.
 

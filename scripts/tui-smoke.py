@@ -97,7 +97,10 @@ def run(mode, nerd_fonts, live=False):
         for columns in (32, 120):
             fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 100, columns, columns * 8, 1600))
             os.kill(process.pid, signal.SIGWINCH)
-            drain(timeout=3)
+            resized = drain(timeout=3)
+            if columns == 32:
+                plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", resized)
+                assert re.search(rb"edit [^\r\n]*, took 48s", plain), "Long standalone path hid the timer"
         if live:
             settings["expresso"]["nerdFonts"] = nerd_fonts
             settings_path.write_text(json.dumps(settings))
