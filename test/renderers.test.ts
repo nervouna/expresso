@@ -93,7 +93,7 @@ test("compact failures use warning text and a subtle tint with vanilla padding",
       assert.deepEqual(lines.map(stripTerminalSequences), vanilla.render(width).map(stripTerminalSequences));
       assert.equal(lines.length, 4);
       assert.equal(lines[1], compactBackground(" ".repeat(width), status === "error"));
-      const header = theme.fg(color, truncateToWidth(label, width - 2));
+      const header = theme.fg(color, stripTerminalSequences(truncateToWidth(label, width - 2)));
       assert.equal(lines[2], compactBackground(` ${header}${" ".repeat(width - 1 - visibleWidth(header))}`, status === "error"));
       assert.equal(lines[3], lines[1]);
       if (status === "error") {
@@ -249,6 +249,70 @@ test("long standalone identifiers preserve the timer, status, and tool name", ()
             c.setExpanded(true);
             assert.match(plain(c, 120).join("\n"), /TAIL/);
             assert.doesNotMatch(plain(c, 120).join("\n"), /took|elapsed/);
+          }
+        }
+      }
+    }
+  } finally {
+    initTheme("dark", false);
+  }
+});
+
+test("truncated headers retain foreground and background through ellipses and padding", () => {
+  const paintedCharacters = (line: string) => {
+    let fg: string | undefined, bg: string | undefined;
+    const characters: { text: string; fg?: string; bg?: string }[] = [];
+    for (const match of line.matchAll(/\x1b\[([\d;]*)m|([^\x1b]+)/g)) {
+      if (match[2] !== undefined) {
+        for (const text of match[2]) characters.push({ text, fg, bg });
+        continue;
+      }
+      const codes = match[1].split(";").map(Number);
+      for (let i = 0; i < codes.length; i++) {
+        const code = codes[i];
+        if (code === 0) { fg = undefined; bg = undefined; }
+        else if (code === 39) fg = undefined;
+        else if (code === 49) bg = undefined;
+        else if (code === 38 || code === 48) {
+          const length = codes[i + 1] === 2 ? 5 : 3;
+          const color = codes.slice(i, i + length).join(";");
+          if (code === 38) fg = color;
+          else bg = color;
+          i += length - 1;
+        }
+      }
+    }
+    return characters;
+  };
+  try {
+    for (const themeName of ["dark", "light"]) {
+      initTheme(themeName, false);
+      for (const nerdFonts of [false, true]) {
+        for (const failed of [false, true]) {
+          for (const timing of [undefined, "36s elapsed", "took 1h 02m 05s"]) {
+            const renderers = new CompactRenderers(new ToolGroups(), () => {}, { nerdFonts }, () => timing);
+            const c = new ToolExecutionComponent("bash", "long", { command: "echo 文件👋 ".repeat(40) }, {},
+              renderers.wrap("bash"), ui, process.cwd());
+            c.updateResult({ content: [], isError: failed });
+            const background = paintedCharacters(compactBackground("x", failed))[0].bg;
+            const foreground = paintedCharacters(theme.fg(failed ? "warning" : "muted", "x"))[0].fg;
+            const muted = paintedCharacters(theme.fg("muted", "x"))[0].fg;
+            assert.ok(background && foreground && muted);
+            for (const width of [1, 2, 3, 8, 24, 40, 80]) {
+              const line = c.render(width)[2];
+              const characters = paintedCharacters(line);
+              assert.ok(characters.some((c) => c.text === "."), "fixture must truncate");
+              let inTiming = false;
+              for (const character of characters) {
+                assert.equal(character.bg, background, `background lost at ${JSON.stringify(character.text)}`);
+                if (character.text === ",") inTiming = true;
+                if (character.text.trim()) {
+                  assert.equal(character.fg, inTiming ? muted : foreground,
+                    `foreground lost at ${JSON.stringify(character.text)}`);
+                }
+              }
+              assert.ok(visibleWidth(line) <= width);
+            }
           }
         }
       }

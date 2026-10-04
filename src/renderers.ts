@@ -124,7 +124,9 @@ class Slot implements Component {
             shownDetail = truncateToWidth(detail, Math.max(0, contentWidth - reserved - 1));
           }
           const summary = label + (shownDetail ? ` ${shownDetail}` : "") + suffix;
-          return [state.theme.fg(color, truncateToWidth(summary, contentWidth))];
+          // Truncation inserts full resets that would clear the enclosing foreground and background.
+          const clipped = truncateToWidth(summary, contentWidth).replaceAll("\x1b[0m", "");
+          return [state.theme.fg(color, clipped)];
         },
         invalidate() {},
       });
