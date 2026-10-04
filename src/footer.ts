@@ -2,11 +2,12 @@ import { basename } from "node:path";
 import type { ExtensionAPI, ExtensionContext, SessionEntry, Theme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { readOptions } from "./settings.ts";
+import { registerThroughput, sessionThroughput } from "./throughput.ts";
 
 // Codepoints from Nerd Fonts glyphnames.json.
 export const footerIcons = {
   folder: "\uf07b", git: "\ue725", provider: "\uec10",
-  input: "\uf062", output: "\uf063", cache: "\u{f01bc}", hit: "\uebf8",
+  input: "\uf062", output: "\uf063", cache: "\u{f01bc}", hit: "\uebf8", speed: "\u{f04c5}",
 };
 
 export function thinkingIcon(level: string, reasoning: boolean): string {
@@ -49,6 +50,7 @@ export interface FooterSnapshot {
   icons: boolean;
   usage: ReturnType<typeof footerUsage>;
   percent: number | null;
+  throughput?: number;
 }
 
 const footerWidth = (width: number) => Math.max(0, Math.floor(width));
@@ -90,7 +92,9 @@ function contentLines(data: FooterSnapshot, width: number): string[] {
     const position = index === 0 ? 0 : index === 9 ? 2 : 1;
     return String.fromCodePoint(0xee00 + position + (index < filled ? 3 : 0));
   }).join("");
-  const progress = `${bar} ${percent === null ? "?" : percent.toFixed(1)}%`;
+  const rate = data.throughput !== undefined && Number.isFinite(data.throughput) && data.throughput >= 0
+    ? data.throughput.toFixed(1) : "—";
+  const progress = `${icon("speed", "avg")} ${rate} tok/s ${bar} ${percent === null ? "?" : percent.toFixed(1)}%`;
   const fits = (left: string, right: string) => visibleWidth(left) + 2 + visibleWidth(right) <= width;
   const join = (left: string, right: string) => left + " ".repeat(width - visibleWidth(left) - visibleWidth(right)) + right;
   if (fits(project + branch, model) && fits(stats, progress)) {
@@ -111,6 +115,7 @@ function contentLines(data: FooterSnapshot, width: number): string[] {
 export function registerFooter(pi: ExtensionAPI) {
   let refresh: (() => void) | undefined;
   let dispose: (() => void) | undefined;
+  registerThroughput(pi, () => refresh?.());
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui") return;
     const options = readOptions(pi.getSettings());
@@ -122,6 +127,7 @@ export function registerFooter(pi: ExtensionAPI) {
       let dirty = true;
       let key = "";
       let usage = footerUsage([]);
+      let throughput: number | undefined;
       const update = () => { dirty = true; tui.requestRender(); };
       const unsub = footerData.onBranchChange(update);
       let disposed = false;
@@ -140,11 +146,13 @@ export function registerFooter(pi: ExtensionAPI) {
           const session = ctx.sessionManager;
           const nextKey = `${session.getSessionId()}:${session.getLeafId()}`;
           if (dirty || key !== nextKey) {
-            usage = footerUsage(session.getEntries());
+            const entries = session.getEntries();
+            usage = footerUsage(entries);
+            throughput = sessionThroughput(entries);
             key = nextKey;
             dirty = false;
           }
-          const lines = footerLines(snapshot(ctx, options.nerdFonts, footerData.getGitBranch(), usage, pi.getThinkingLevel()), width, ctx.ui.theme);
+          const lines = footerLines({ ...snapshot(ctx, options.nerdFonts, footerData.getGitBranch(), usage, pi.getThinkingLevel()), throughput }, width, ctx.ui.theme);
           const statuses = [...footerData.getExtensionStatuses()].sort(([a], [b]) => a.localeCompare(b))
             .map(([, value]) => clean(value)).join(" ");
           if (statuses) {

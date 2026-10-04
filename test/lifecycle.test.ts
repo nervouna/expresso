@@ -9,6 +9,7 @@ import { stripTerminalSequences, type TUI } from "@earendil-works/pi-tui";
 import { loadExtensions } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js";
 import { assistant, call, result, text, tick } from "./helpers.ts";
 import { TIMING_ENTRY } from "../src/timing.ts";
+import { THROUGHPUT_ENTRY } from "../src/throughput.ts";
 
 initTheme("dark", false);
 
@@ -78,6 +79,18 @@ test("reload can construct tool components before session_start without leaking 
   h.ctx.ui.setToolsExpanded(true);
   assert.match(h.render(), /PRIVATE a/);
   assert.match(h.render(), /PRIVATE b/);
+});
+
+test("saved throughput metadata does not split adjacent tool groups on reload", async () => {
+  const h = await harness();
+  h.session.appendMessage(assistant([call("a")]));
+  h.session.appendMessage(result("a"));
+  h.session.appendCustomEntry(THROUGHPUT_ENTRY, { version: 1, output: 100, elapsedMs: 2000 });
+  h.session.appendMessage(assistant([call("b")]));
+  h.session.appendMessage(result("b"));
+  await h.emit({ type: "session_start", reason: "reload" });
+  h.addComponent("a"); h.addComponent("b");
+  assert.match(h.render(), /Used 2 tools/);
 });
 
 test("Nerd Font settings update existing pre-start rows on reload and can be turned off", async () => {

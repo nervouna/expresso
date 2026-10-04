@@ -122,7 +122,7 @@ Run `/reload` after changing settings. Only the boolean `true` enables the foote
 When both rows fit, the footer shows:
 
 - Project directory name and Git branch on the left, provider icon, model ID, and thinking phase on the right.
-- Session input/output tokens, cache-read tokens, and the latest prompt-cache hit percentage on the left, context usage on the right.
+- Session input/output tokens, cache-read tokens, and the latest prompt-cache hit percentage on the left, average output speed and context usage on the right.
 
 At narrower widths it switches to one row: project name on the left, provider icon, model ID, and thinking phase on the right. Every row has one column of padding on each side, including other extensions' status messages on their additional row. Long names truncate within that padding. Resizing switches layouts automatically. At widths below two columns, the footer shows only available padding.
 
@@ -131,6 +131,10 @@ With Nerd Fonts enabled, all providers use `nf-cod-sparkle` before the model ID 
 The cache-hit rate uses `nf-cod-target` followed by one space and the value. The context bar uses ten `nf-extra-progress-*` segments, including end caps. Each completed 10% fills one segment; the numeric percentage retains one decimal place. The bar uses dimmed theme colors: success (green) below 50%, warning (yellow) from 50% to below 80%, and error (red) at 80% or above. Its percentage and surrounding text stay muted. Without Nerd Fonts, filled and empty line segments replace these glyphs. Unknown context usage shows a neutral empty bar and `?%`, not zero.
 
 Token totals include all session branches, tool-reported usage, compaction, branch summaries, and standalone usage entries, matching Pi's session-wide accounting. Cache-hit percentage is cache-read tokens divided by input plus cache-read plus cache-write tokens for the latest assistant entry. It is separate from current context occupancy. The footer does not query provider quotas or run extra Git commands.
+
+Average output speed appears immediately before the context bar, separated by one space: `󰓅 31.3 tok/s`. The icon is `nf-md-speedometer`; without Nerd Fonts the label is `avg`. Until a request has been measured, the value is `—`. The average is total measured output tokens divided by total measured request seconds, including the wait for the first token but excluding tool execution and idle time. Timing starts at Pi's request-payload hook. Pi-level retries get separate measurements, excluding backoff; retries handled internally by a provider may remain included because Pi does not expose their timing. Failed and cancelled requests are excluded because their usage may be incomplete. Reasoning tokens count when the provider includes them in output usage.
+
+Measurements are collected while the custom footer is enabled in TUI mode and saved as hidden `expresso:request-throughput` entries outside model context. They survive resume, `/reload`, tree navigation, and compaction. The average covers measured requests across all session branches and models; older requests without measurements, tool-reported usage, compaction summaries, and other background usage are excluded. The speed stays fixed between completed requests and is hidden along with the other stats in the narrow layout.
 
 Only one extension can replace Pi's footer at a time. The last caller wins; Expresso cannot compose with another replacement footer. Disabled Expresso leaves the footer slot alone. Print, JSON, and RPC modes are unchanged.
 
@@ -196,4 +200,4 @@ The PTY suite checks both fullscreen and regular modes with icons enabled and di
 PI_BIN="$(command -v pi)" npm run test:tui
 ```
 
-Production code is in `src/index.ts`, `src/groups.ts`, `src/renderers.ts`, `src/settings.ts`, `src/footer.ts`, and `src/timing.ts`. Tests pin Pi 1.0.2 and inspect some of its internal components; those internal imports are confined to the tests.
+Production code is in `src/index.ts`, `src/groups.ts`, `src/renderers.ts`, `src/settings.ts`, `src/footer.ts`, `src/throughput.ts`, and `src/timing.ts`. Tests pin Pi 1.0.2 and inspect some of its internal components; those internal imports are confined to the tests.

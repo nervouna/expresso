@@ -7,6 +7,7 @@ import { registerFooter } from "./footer.ts";
 import { ToolGroups } from "./groups.ts";
 import { CompactRenderers } from "./renderers.ts";
 import { readOptions } from "./settings.ts";
+import { THROUGHPUT_ENTRY } from "./throughput.ts";
 import { RoundTimings, TIMING_ENTRY, type TimingRecord } from "./timing.ts";
 
 export default function expresso(pi: ExtensionAPI) {
@@ -37,7 +38,7 @@ export default function expresso(pi: ExtensionAPI) {
     Object.assign(options, readOptions(pi.getSettings()));
     for (const entry of ctx.sessionManager.buildContextEntries()) {
       if (entry.type === "custom") {
-        if (entry.customType !== TIMING_ENTRY) groups.boundary();
+        if (entry.customType !== TIMING_ENTRY && entry.customType !== THROUGHPUT_ENTRY) groups.boundary();
       } else {
         for (const message of sessionEntryToContextMessages(entry)) {
           groups.observe(message, "history");

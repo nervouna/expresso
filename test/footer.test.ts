@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { SessionManager, initTheme, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { SessionManager, initTheme, type ExtensionAPI, type ExtensionContext, type ExtensionEvent } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, stripTerminalSequences } from "@earendil-works/pi-tui";
 import { footerIcons, footerLines, footerUsage, registerFooter, thinkingIcon, type FooterSnapshot } from "../src/footer.ts";
 import { readOptions } from "../src/settings.ts";
@@ -8,7 +8,7 @@ import { theme } from "../node_modules/@earendil-works/pi-coding-agent/dist/mode
 import { assistant, text } from "./helpers.ts";
 
 const data: FooterSnapshot = { project: "expresso", branch: "main", provider: "openai", model: "gpt-6-astra",
-  reasoning: true, thinking: "high", icons: true, usage: { input: 32000, output: 2800, cache: 135000, hit: 93.6 }, percent: 11.5 };
+  reasoning: true, thinking: "high", icons: true, usage: { input: 32000, output: 2800, cache: 135000, hit: 93.6 }, percent: 11.5, throughput: 31.25 };
 
 test("footer setting is strictly opt-in", () => {
   for (const footer of [true, false, "true", 1, null, undefined, [], {}]) {
@@ -38,6 +38,13 @@ test("layout switches on content width and aligns provider with the model in bot
   assert.ok(full[0].includes(`${footerIcons.provider} gpt-6-astra`));
   assert.equal(full[0].split(footerIcons.provider).length - 1, 1);
   assert.match(full[1], /32k.*2.8k.*135k.*93.6%.*11.5% $/);
+  assert.equal(footerIcons.speed, "\u{f04c5}");
+  assert.ok(full[1].includes(`${footerIcons.speed} 31.3 tok/s \uee03`));
+  assert.ok(!footerLines(data, 45).join("").includes("tok/s"));
+  assert.ok(footerLines({ ...data, icons: false }, 120)[1].includes("avg 31.3 tok/s ━"));
+  for (const throughput of [undefined, NaN, Infinity, -1]) {
+    assert.ok(footerLines({ ...data, throughput }, 120)[1].includes("— tok/s "));
+  }
   assert.equal(footerIcons.hit, "\uebf8");
   assert.ok(full[1].includes(`${footerIcons.hit} 93.6%`));
   assert.ok(full[1].includes("\uee03" + "\uee01".repeat(8) + "\uee02"));
@@ -164,13 +171,16 @@ test("usage includes all branches, tool usage, compaction and standalone usage",
   assert.deepEqual(footerUsage(session.getEntries()), { input: 50, output: 100, cache: 400, hit: 80 });
 });
 
-test("footer lifecycle respects opt-in, modes, replacement ownership, statuses and cleanup", () => {
+test("footer lifecycle respects opt-in, modes, replacement ownership, statuses and cleanup", (t) => {
+  let now = 0;
+  t.mock.method(performance, "now", () => now);
   initTheme("dark", false);
   const handlers = new Map<string, ((event: unknown, ctx: ExtensionContext) => void)[]>();
   let settings = { expresso: { footer: false, nerdFonts: true } };
   registerFooter({ on(name: string, handler: (event: unknown, ctx: ExtensionContext) => void) {
     handlers.set(name, [...handlers.get(name) ?? [], handler]);
-  }, getSettings: () => settings, getThinkingLevel: () => "max" } as unknown as ExtensionAPI);
+  }, getSettings: () => settings, getThinkingLevel: () => "max",
+    appendEntry: (type: string, data: unknown) => session.appendCustomEntry(type, data) } as unknown as ExtensionAPI);
   let installed = 0, unsubscribed = 0, requests = 0;
   let component: ReturnType<NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]>> | undefined;
   let branchChange: (() => void) | undefined;
@@ -187,7 +197,7 @@ test("footer lifecycle respects opt-in, modes, replacement ownership, statuses a
         });
       } },
   } as unknown as ExtensionContext;
-  const emit = (name: string) => handlers.get(name)?.forEach((handler) => handler({}, ctx));
+  const emit = (name: string, event: Partial<ExtensionEvent> = {}) => handlers.get(name)?.forEach((handler) => handler(event, ctx));
   emit("session_start");
   assert.equal(installed, 0);
   settings = { expresso: { footer: true, nerdFonts: true } };
@@ -204,7 +214,16 @@ test("footer lifecycle respects opt-in, modes, replacement ownership, statuses a
   }
   branchChange?.(); emit("thinking_level_select");
   assert.equal(requests, 2);
+  assert.match(stripTerminalSequences(component!.render(100)[1]), /— tok\/s/);
+  emit("before_provider_request", { payload: {} });
+  now = 2000;
+  const message = assistant([], "stop");
+  message.usage.output = 100;
+  emit("message_end", { message });
+  session.appendMessage(message);
+  assert.match(stripTerminalSequences(component!.render(100)[1]), /50.0 tok\/s/);
   emit("session_start");
+  assert.match(stripTerminalSequences(component!.render(100)[1]), /50.0 tok\/s/);
   assert.equal(unsubscribed, 1);
   component!.dispose?.(); // Another extension takes the slot.
   settings.expresso.footer = false;
