@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { resolve } from "node:path";
 import {
-  SessionManager, ToolExecutionComponent, initTheme,
+  SessionManager, SettingsManager, ToolExecutionComponent, initTheme,
   type ExtensionContext, type ExtensionEvent, type ToolRenderers,
 } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, type TUI } from "@earendil-works/pi-tui";
@@ -15,6 +15,8 @@ async function harness() {
   const loaded = await loadExtensions([resolve("src/index.ts")], process.cwd());
   assert.deepEqual(loaded.errors, []);
   const extension = loaded.extensions[0];
+  const settings = SettingsManager.inMemory();
+  loaded.runtime.getSettings = () => settings.getSettings();
   const session = SessionManager.inMemory(process.cwd());
   let expanded = false;
   const components: ToolExecutionComponent[] = [];
@@ -40,7 +42,8 @@ async function harness() {
     return c;
   };
   const render = () => components.flatMap((c) => c.render(80)).map(stripTerminalSequences).join("\n");
-  return { extension, session, ctx, components, emit, resolver, addComponent, render };
+  const setSettings = (value: unknown) => settings.applyOverrides(value as Parameters<typeof settings.applyOverrides>[0]);
+  return { extension, session, ctx, components, emit, resolver, addComponent, render, setSettings };
 }
 
 test("extension loads through Pi's TypeScript loader without replacing tools or shortcuts", async () => {
@@ -65,6 +68,32 @@ test("reload can construct tool components before session_start without leaking 
   h.ctx.ui.setToolsExpanded(true);
   assert.match(h.render(), /PRIVATE a/);
   assert.match(h.render(), /PRIVATE b/);
+});
+
+test("Nerd Font settings update existing pre-start rows on reload and can be turned off", async () => {
+  const h = await harness();
+  h.setSettings({ expresso: { nerdFonts: true } });
+  h.session.appendMessage(assistant([call("a"), call("b")]));
+  h.session.appendMessage(result("a")); h.session.appendMessage(result("b"));
+  const a = h.addComponent("a"), b = h.addComponent("b");
+  a.updateResult({ content: [text("PRIVATE a")], isError: false });
+  b.updateResult({ content: [text("PRIVATE b")], isError: false });
+  await h.emit({ type: "session_start", reason: "reload" });
+  assert.match(h.render(), / Used 2 tools/);
+  assert.doesNotMatch(h.render(), /PRIVATE/);
+  h.ctx.ui.setToolsExpanded(true);
+  assert.match(h.render(), /PRIVATE b/);
+  h.ctx.ui.setToolsExpanded(false);
+  assert.match(h.render(), / Used 2 tools/);
+  h.setSettings({ expresso: { nerdFonts: false } });
+  await h.emit({ type: "session_start", reason: "reload" });
+  assert.match(h.render(), /Used 2 tools/);
+  assert.doesNotMatch(h.render(), //);
+  for (const nerdFonts of [true, "true", null]) {
+    h.setSettings({ expresso: { nerdFonts } });
+    await h.emit({ type: "session_start", reason: "reload" });
+    assert.equal(h.render().includes(""), nerdFonts === true);
+  }
 });
 
 test("live message and tool events group streaming calls, ignore nested calls, and retain data", async () => {

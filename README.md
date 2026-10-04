@@ -39,7 +39,33 @@ Expresso targets the Earendil Pi package named above and requires its `registerT
 - Image-producing calls stay separate, with groups split on both sides. Pi still draws the images using its existing size, protocol, and visibility settings. Expresso never removes image data or changes your image preference.
 - Built-in tools, codemode, extension tools, and MCP tools use the same grouping logic. Tools called inside codemode count as part of the codemode invocation unless Pi gives them their own transcript rows.
 
-Each visible compact block has one column of horizontal padding and one blank row above and below its single content line. Waiting, running, and successful calls use muted text on Pi's `toolPendingBg`, a subdued gray in the built-in dark and light themes. If any call failed, the block uses Pi's error text and `toolErrorBg` instead. Pi retains its normal blank separator before the block. Hidden members take no lines and add no padding. At widths of one or two columns, horizontal padding is omitted to keep the summary within the terminal.
+Each visible compact block has one column of horizontal padding and one blank row above and below its single content line. Waiting, running, and successful calls use muted text on Pi's `toolPendingBg`, a subdued gray in the built-in dark and light themes. If any call failed, the block uses Pi's warning text color on a subtle warning-tinted background (12% warning color blended into the neutral background). Expanded details retain their original tool styling. Pi retains its normal blank separator before the block. Hidden members take no lines and add no padding. At widths of one or two columns, horizontal padding is omitted to keep the summary within the terminal.
+
+### Nerd Font icons
+
+Icons are opt-in. Add this key to your Pi settings, normally `~/.pi/agent/settings.json`, then run `/reload`:
+
+```json
+{
+  "expresso": {
+    "nerdFonts": true
+  }
+}
+```
+
+Pi's effective settings determine the value, so a trusted project's `.pi/settings.json` can override the user setting. If you use `PI_CODING_AGENT_DIR`, edit `settings.json` in that directory instead. Missing or invalid values default to `false`; only the boolean `true` enables icons. Expresso reads this preference on startup and reload without writing to your settings.
+
+Your terminal must use a Nerd Font, such as Maple Mono NF, or a font fallback providing these glyphs. The spinner is static.
+
+| State | Standalone call | Group |
+|---|---|---|
+| Waiting to start | ` read src/index.ts` | ` Using 3 tools` |
+| Running | ` read src/index.ts` | ` Using 3 tools` |
+| Completed successfully | ` read src/index.ts` | ` Used 3 tools` |
+| Running with a failure | N/A | ` Using 3 tools ( 1)` |
+| Finished with a failure | ` read src/index.ts` | ` Used 3 tools ( 1)` |
+
+Icon-mode groups omit the pending count but retain the failure count. Text mode keeps the original labels and counts. Backgrounds, padding, expanded details, and images are unchanged. Set `nerdFonts` to `false` and run `/reload` to return to text labels.
 
 ### Expansion controls
 
@@ -66,6 +92,8 @@ The offline demo opens a generated session containing built-in calls, codemode, 
 ```sh
 npm ci
 npm run demo
+# Preview Nerd Font icons using only the demo's temporary settings:
+npm run demo -- --nerd-fonts
 # Or use regular terminal mode:
 npm run demo -- --tui-mode regular
 ```
@@ -75,7 +103,7 @@ The demo uses temporary Pi settings and session files, which it removes on exit.
 Check the following:
 
 1. The first three calls share one padded `Used 3 tools` summary with a subdued background, even though they came from two execution steps.
-2. The standalone edit has one content line with the same padding. The following group shows a failure marker and Pi's error background.
+2. The standalone edit has one content line with the same padding. The following group shows a failure marker with warning-colored text and a subtle warning-tinted background.
 3. Ctrl+O reveals arguments, output, and the edit diff. Press it again to restore the summaries.
 4. The colored image remains between two groups, each containing two calls, if your terminal supports Pi's image protocol.
 5. `/reload` preserves the compact presentation. Resize the terminal and try both TUI modes.
@@ -91,12 +119,12 @@ npm run test:tui     # Real CLI smoke tests; requires Python 3 and a POSIX PTY
 npm pack --dry-run   # Inspect the package contents
 ```
 
-The automated tests cover streaming updates, boundaries, failures and aborts, image splits, width handling, theme changes, downstream renderer reuse, HTML results, lifecycle restoration, and non-TUI passthrough. Compact styling and padding are checked in dark and light themes: non-failed blocks use Pi's neutral pending background, and failures use its error background, including mixed pending/failed groups. Built-in expanded output is also compared against Pi's tool components.
+The automated tests cover streaming updates, boundaries, failures and aborts, image splits, width handling, theme changes, downstream renderer reuse, HTML results, lifecycle restoration, and non-TUI passthrough. Compact styling and padding are checked in dark and light themes: non-failed blocks use Pi's neutral pending background, and failures use warning text with a subtle warning tint, including mixed pending/failed groups. Built-in expanded output is also compared against Pi's tool components.
 
-The PTY suite checks both fullscreen and regular modes, including Ctrl+O, image protocol output, `/reload`, and resizing. It uses isolated settings and no model requests. To check a different installed Pi binary:
+The PTY suite checks both fullscreen and regular modes with icons enabled and disabled, including Ctrl+O, image protocol output, changing the preference through `/reload`, and resizing. It uses isolated settings and no model requests. To check a different installed Pi binary:
 
 ```sh
 PI_BIN="$(command -v pi)" npm run test:tui
 ```
 
-Production code is in `src/index.ts`, `src/groups.ts`, and `src/renderers.ts`. Tests pin Pi 1.0.2 and inspect some of its internal components; those internal imports are confined to the tests.
+Production code is in `src/index.ts`, `src/groups.ts`, `src/renderers.ts`, and `src/settings.ts`. Tests pin Pi 1.0.2 and inspect some of its internal components; those internal imports are confined to the tests.

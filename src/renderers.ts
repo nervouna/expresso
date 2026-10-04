@@ -1,9 +1,18 @@
 import type { Theme, ToolRenderers } from "@earendil-works/pi-coding-agent";
 import {
-  Box, Spacer, Text, stripTerminalSequences, truncateToWidth,
+  Box, Spacer, Text, mixColors, stripTerminalSequences, truncateToWidth,
   type Component, type TuiMouseEvent,
 } from "@earendil-works/pi-tui";
 import { ToolGroups, type Redraw } from "./groups.ts";
+import type { CompactOptions } from "./settings.ts";
+
+const icons = {
+  pending: "\uf017",
+  running: "\uf110",
+  done: "\uf00c",
+  failed: "\uf00d",
+  groupFailed: "\uf071",
+};
 
 type CallRenderer = NonNullable<ToolRenderers["renderCall"]>;
 type ResultRenderer = NonNullable<ToolRenderers["renderResult"]>;
@@ -55,6 +64,7 @@ class Slot implements Component {
     private readonly state: State,
     private readonly groups: ToolGroups,
     private readonly toggleAll: () => void,
+    private readonly options: CompactOptions,
   ) {}
 
   invalidate() {
@@ -78,8 +88,14 @@ class Slot implements Component {
       let label: string;
       if (group && group.length > 1) {
         label = `${pending ? "Using" : "Used"} ${group.length} tools`;
-        if (pending) label += ` (${pending} pending)`;
-        if (errors) label = `[${errors} failed] ${label}`;
+        if (this.options.nerdFonts) {
+          const icon = pending ? icons.running : errors ? icons.groupFailed : icons.done;
+          label = `${icon} ${label}`;
+          if (errors) label += ` (${icons.failed} ${errors})`;
+        } else {
+          if (pending) label += ` (${pending} pending)`;
+          if (errors) label = `[${errors} failed] ${label}`;
+        }
       } else {
         label = oneLine(this.name);
         const detail = identifier(state.args);
@@ -87,12 +103,16 @@ class Slot implements Component {
         const status = errors || context.isError ? "failed"
           : pending ? context.executionStarted ? "running" : "pending" : "done";
         // Put status first so narrow terminals do not truncate a failure marker.
-        label = `[${status}] ${label}`;
+        label = `${this.options.nerdFonts ? icons[status] : `[${status}]`} ${label}`;
       }
       const failed = errors > 0 || context.isError;
-      const color = failed ? "error" : "muted";
-      const background = failed ? "toolErrorBg" : "toolPendingBg";
-      const box = new Box(width > 2 ? 1 : 0, 1, (line) => state.theme.bg(background, line));
+      const color = failed ? "warning" : "muted";
+      const warningBackground = failed
+        ? mixColors(state.theme.colors.toolPendingBg, state.theme.colors.warning, 0.12, "srgb")
+        : undefined;
+      const box = new Box(width > 2 ? 1 : 0, 1, (line) => warningBackground
+        ? state.theme.style(line, { bg: warningBackground })
+        : state.theme.bg("toolPendingBg", line));
       box.addChild({
         render: (contentWidth) => [state.theme.fg(color, truncateToWidth(label, contentWidth))],
         invalidate() {},
@@ -173,6 +193,7 @@ export class CompactRenderers {
   constructor(
     private readonly groups: ToolGroups,
     private readonly toggleAll: () => void,
+    private readonly options: CompactOptions = { nerdFonts: false },
   ) {}
 
   wrap(name: string, original: ToolRenderers = {}): ToolRenderers {
@@ -192,7 +213,7 @@ export class CompactRenderers {
       return state;
     };
     const view = (state: State, kind: SlotName) => state.views[kind] ??=
-      new Slot(name, kind, state, this.groups, this.toggleAll);
+      new Slot(name, kind, state, this.groups, this.toggleAll, this.options);
     return {
       renderShell: "self",
       renderCall: (args, theme, context) => {

@@ -9,7 +9,9 @@ import { assistant, call, text, type Assistant } from "../test/helpers.ts";
 const directory = mkdtempSync(join(tmpdir(), "pi-expresso-demo-"));
 const agentDir = join(directory, "agent");
 mkdirSync(agentDir);
-writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ quietStartup: true, theme: "dark" }));
+writeFileSync(join(agentDir, "settings.json"), JSON.stringify({
+  quietStartup: true, theme: "dark", expresso: { nerdFonts: process.argv.includes("--nerd-fonts") },
+}));
 writeFileSync(join(directory, "sample.txt"), "before\n");
 
 function png() {
@@ -76,7 +78,7 @@ heading("End of fixture. Ctrl+O toggles details; /reload checks extension reload
 const args = [
   "--offline", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-approve",
   "-e", resolve("src/index.ts"), "--session", session.getSessionFile()!,
-  ...process.argv.slice(2).filter((arg) => arg !== "--prepare-only"),
+  ...process.argv.slice(2).filter((arg) => arg !== "--prepare-only" && arg !== "--nerd-fonts"),
 ];
 const command = process.env.PI_BIN ?? resolve("node_modules/.bin/pi");
 if (process.argv.includes("--prepare-only")) {

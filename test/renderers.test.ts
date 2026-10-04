@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ToolExecutionComponent, initTheme, type ToolRenderers } from "@earendil-works/pi-coding-agent";
-import { Text, setCapabilities, stripTerminalSequences, truncateToWidth, visibleWidth, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { Text, mixColors, setCapabilities, stripTerminalSequences, truncateToWidth, visibleWidth, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { createAllToolRenderers } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/renderers/index.js";
 import { createToolHtmlRenderer } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/export-html/tool-renderer.js";
 import { theme } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
@@ -13,11 +13,16 @@ initTheme("dark", false);
 setCapabilities({ images: null, trueColor: true, hyperlinks: true });
 const ui = { requestRender() {} } as TUI;
 const plain = (component: ToolExecutionComponent, width = 100) => component.render(width).map(stripTerminalSequences);
-const padded = (label: string, width = 100) => ["", " ".repeat(width), ` ${label}`.padEnd(width), " ".repeat(width)];
+const padded = (label: string, width = 100) => [
+  "", " ".repeat(width), ` ${label}${" ".repeat(Math.max(0, width - 1 - visibleWidth(label)))}`, " ".repeat(width),
+];
+const compactBackground = (line: string, failed: boolean) => failed
+  ? theme.style(line, { bg: mixColors(theme.colors.toolPendingBg, theme.colors.warning, 0.12, "srgb") })
+  : theme.bg("toolPendingBg", line);
 const output = { content: [text("PRIVATE RESULT\nsecond line")], isError: false };
 const mouse = (y: number): TuiMouseEvent => ({ type: "click", button: "left", x: 1, y, screenX: 1, screenY: y, width: 100, height: 20, shift: false, alt: false, ctrl: false });
 
-function setup(names = ["read", "bash"], originals: Record<string, ToolRenderers> = {}) {
+function setup(names = ["read", "bash"], originals: Record<string, ToolRenderers> = {}, nerdFonts = false) {
   const groups = new ToolGroups();
   const calls = names.map((name, i) => call(String(i), name, { path: `${i}.txt`, command: "echo secret\nPRIVATE COMMAND", content: "PRIVATE CONTENT" }));
   groups.observe(assistant(calls), "history");
@@ -25,7 +30,7 @@ function setup(names = ["read", "bash"], originals: Record<string, ToolRenderers
   const renderers = new CompactRenderers(groups, () => {
     expanded = !expanded;
     for (const component of components) component.setExpanded(expanded);
-  });
+  }, { nerdFonts });
   const components = calls.map((c) => new ToolExecutionComponent(c.name, c.id, c.arguments, {}, renderers.wrap(c.name, originals[c.name]), ui, process.cwd()));
   const finish = (i: number, result = output, partial = false) => {
     groups.result(String(i), result.content, !partial, result.isError);
@@ -71,10 +76,9 @@ test("pending, partial, completed, and failed runs update their shared summary",
   assert.doesNotMatch(plain(components[0])[2], /private failure/);
 });
 
-test("compact blocks use neutral styling except for failures and retain vanilla padding", () => {
+test("compact failures use warning text and a subtle tint with vanilla padding", () => {
   const check = (components: ToolExecutionComponent[], label: string, status: "pending" | "success" | "error") => {
-    const color = status === "error" ? "error" : "muted";
-    const background = status === "error" ? "toolErrorBg" : "toolPendingBg";
+    const color = status === "error" ? "warning" : "muted";
     const vanilla = new ToolExecutionComponent("reference", "reference", {}, {}, {
       renderCall: (_args, currentTheme) => ({
         render: (width) => [currentTheme.fg(color, truncateToWidth(label, width))],
@@ -85,10 +89,15 @@ test("compact blocks use neutral styling except for failures and retain vanilla 
     vanilla.updateResult({ content: [], isError: status === "error" }, status !== "error");
     for (const width of [3, 8, 20, 80, 120]) {
       const lines = components.flatMap((c) => c.render(width));
-      assert.deepEqual(lines, vanilla.render(width));
+      assert.deepEqual(lines.map(stripTerminalSequences), vanilla.render(width).map(stripTerminalSequences));
       assert.equal(lines.length, 4);
-      assert.equal(lines[1], theme.bg(background, " ".repeat(width)));
+      assert.equal(lines[1], compactBackground(" ".repeat(width), status === "error"));
+      const header = theme.fg(color, truncateToWidth(label, width - 2));
+      assert.equal(lines[2], compactBackground(` ${header}${" ".repeat(width - 1 - visibleWidth(header))}`, status === "error"));
       assert.equal(lines[3], lines[1]);
+      if (status === "error") {
+        assert.notEqual(lines[1], theme.bg("toolErrorBg", " ".repeat(width)));
+      }
       assert.deepEqual(components.slice(1).flatMap((c) => c.render(width)), []);
     }
   };
@@ -118,6 +127,54 @@ test("compact blocks use neutral styling except for failures and retain vanilla 
   } finally {
     initTheme("dark", false);
   }
+});
+
+test("Nerd Font standalone statuses use the agreed clock, spinner, check, and cross", () => {
+  const { components: [c], finish } = setup(["read"], {}, true);
+  assert.deepEqual(plain(c), padded(" read 0.txt"));
+  c.markExecutionStarted();
+  assert.deepEqual(plain(c), padded(" read 0.txt"));
+  finish(0, output, true);
+  assert.deepEqual(plain(c), padded(" read 0.txt"));
+  finish(0);
+  assert.deepEqual(plain(c), padded(" read 0.txt"));
+  finish(0, { ...output, isError: true });
+  assert.deepEqual(plain(c), padded(" read 0.txt"));
+});
+
+test("Nerd Font groups distinguish running, success, and completed failures", () => {
+  const { components, finish } = setup(["read", "bash", "write"], {}, true);
+  const check = (label: string, failed = false) => {
+    assert.deepEqual(components.flatMap((c) => plain(c)), padded(label));
+    const lines = components[0].render(100);
+    assert.equal(lines[1], compactBackground(" ".repeat(100), failed));
+    assert.ok(lines[2].includes(theme.fg(failed ? "warning" : "muted", label)));
+    assert.deepEqual(components.slice(1).flatMap((c) => plain(c)), []);
+  };
+  check(" Using 3 tools");
+  finish(2);
+  check(" Using 3 tools");
+  finish(1, { ...output, isError: true });
+  check(" Using 3 tools ( 1)", true);
+  finish(0);
+  check(" Used 3 tools ( 1)", true);
+  finish(0, { ...output, isError: true });
+  check(" Used 3 tools ( 2)", true);
+  finish(0); finish(1);
+  check(" Used 3 tools");
+});
+
+test("Nerd Font glyphs remain width-safe and expanded output is unchanged", () => {
+  const icons = setup(["read", "bash"], {}, true);
+  const words = setup(["read", "bash"]);
+  for (const fixture of [icons, words]) { fixture.finish(0); fixture.finish(1); }
+  for (const width of [1, 2, 3, 4, 8, 20, 80]) {
+    const lines = icons.components.flatMap((c) => c.render(width));
+    assert.equal(lines.length, 4);
+    assert.ok(lines.every((line) => visibleWidth(line) <= width));
+  }
+  for (const fixture of [icons, words]) fixture.components.forEach((c) => c.setExpanded(true));
+  assert.deepEqual(icons.components.flatMap((c) => c.render(100)), words.components.flatMap((c) => c.render(100)));
 });
 
 test("compact padding and headers remain clickable across the full block width", () => {

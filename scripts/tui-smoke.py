@@ -17,9 +17,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def run(mode):
+def run(mode, nerd_fonts):
     fixture = json.loads(subprocess.check_output(
-        ["node", "--import", "tsx", "scripts/demo.ts", "--prepare-only", "--tui-mode", mode],
+        ["node", "--import", "tsx", "scripts/demo.ts", "--prepare-only", "--tui-mode", mode,
+         *(["--nerd-fonts"] if nerd_fonts else [])],
         cwd=ROOT, text=True,
     ))
     master, slave = pty.openpty()
@@ -58,11 +59,20 @@ def run(mode):
             assert marker in data, f"Missing terminal output: {marker!r}"
         return bytes(data)
 
+    def assert_style(data, enabled):
+        if enabled:
+            assert " Used 3 tools".encode() in data, "Successful-group icon is missing"
+            assert " Used 2 tools ( 1)".encode() in data, "Failed-group icons are missing"
+            assert " edit".encode() in data, "Standalone completion icon is missing"
+        else:
+            assert b"[1 failed] Used 2 tools" in data, "Failure text is missing"
+            assert b"[done] edit" in data, "Standalone completion text is missing"
+
     try:
         collapsed = drain(marker=b"Used 3 tools")
         assert b"EXPRESSO_DETAIL_" not in collapsed, "Collapsed output leaked tool results"
         assert b"EXPRESSO_COMMAND_BODY" not in collapsed, "Collapsed output leaked arguments"
-        assert b"failed" in collapsed, "Failure marker is missing"
+        assert_style(collapsed, nerd_fonts)
         assert any(marker in collapsed for marker in image_markers), "Inline image is missing"
         os.write(master, b"\x0f")
         expanded = drain(marker=b"EXPRESSO_DETAIL_right2")
@@ -73,13 +83,22 @@ def run(mode):
         os.write(master, b"/reload\r")
         reloaded = drain(marker=b"Used 3 tools")
         assert b"EXPRESSO_DETAIL_" not in reloaded
+        assert_style(reloaded, nerd_fonts)
+        settings_path = Path(fixture["agentDir"]) / "settings.json"
+        settings = json.loads(settings_path.read_text())
+        settings["expresso"]["nerdFonts"] = not nerd_fonts
+        settings_path.write_text(json.dumps(settings))
+        os.write(master, b"/reload\r")
+        changed = drain(marker=b"Used 3 tools")
+        assert_style(changed, not nerd_fonts)
+        assert b"EXPRESSO_DETAIL_" not in changed
         for columns in (32, 120):
             fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 100, columns, columns * 8, 1600))
             os.kill(process.pid, signal.SIGWINCH)
             drain(timeout=3)
         assert b"Extension Error" not in transcript
         assert b"Failed to load extension" not in transcript
-        print(f"PASS {mode}: collapsed, Ctrl+O, images, reload, resize")
+        print(f"PASS {mode}, nerdFonts={nerd_fonts}: collapsed, Ctrl+O, images, reload, settings toggle, resize")
     except Exception:
         with tempfile.NamedTemporaryFile(prefix=f"pi-expresso-{mode}-", suffix=".ansi", delete=False) as log:
             log.write(transcript)
@@ -97,4 +116,5 @@ def run(mode):
 
 
 for tui_mode in ("fullscreen", "regular"):
-    run(tui_mode)
+    for use_nerd_fonts in (False, True):
+        run(tui_mode, use_nerd_fonts)

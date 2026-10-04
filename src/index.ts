@@ -5,21 +5,24 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { ToolGroups } from "./groups.ts";
 import { CompactRenderers } from "./renderers.ts";
+import { readOptions } from "./settings.ts";
 
 export default function expresso(pi: ExtensionAPI) {
   const groups = new ToolGroups();
   let enabled = true;
   let ui: ExtensionContext["ui"] | undefined;
+  const options = readOptions(undefined);
   // Pi rebuilds the transcript before session_start during /reload.
   const renderers = new CompactRenderers(groups, () => {
     if (ui) ui.setToolsExpanded(!ui.getToolsExpanded());
-  });
+  }, options);
 
   const restore = (_event: unknown, ctx: ExtensionContext) => {
     groups.reset();
     enabled = ctx.mode === "tui";
     ui = enabled ? ctx.ui : undefined;
     if (!enabled) return;
+    Object.assign(options, readOptions(pi.getSettings()));
     for (const entry of ctx.sessionManager.buildContextEntries()) {
       if (entry.type === "custom") {
         groups.boundary();
