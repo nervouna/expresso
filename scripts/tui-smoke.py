@@ -59,7 +59,7 @@ def run(mode):
         return bytes(data)
 
     try:
-        collapsed = drain(marker=b"Used 3 tools...")
+        collapsed = drain(marker=b"Used 3 tools")
         assert b"EXPRESSO_DETAIL_" not in collapsed, "Collapsed output leaked tool results"
         assert b"EXPRESSO_COMMAND_BODY" not in collapsed, "Collapsed output leaked arguments"
         assert b"failed" in collapsed, "Failure marker is missing"
@@ -68,10 +68,10 @@ def run(mode):
         expanded = drain(marker=b"EXPRESSO_DETAIL_right2")
         assert any(marker in expanded for marker in image_markers), "Expansion removed the image"
         os.write(master, b"\x0f")
-        collapsed_again = drain(marker=b"Used 3 tools...")
+        collapsed_again = drain(marker=b"Used 3 tools")
         assert b"EXPRESSO_DETAIL_" not in collapsed_again
         os.write(master, b"/reload\r")
-        reloaded = drain(marker=b"Used 3 tools...")
+        reloaded = drain(marker=b"Used 3 tools")
         assert b"EXPRESSO_DETAIL_" not in reloaded
         for columns in (32, 120):
             fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 100, columns, columns * 8, 1600))

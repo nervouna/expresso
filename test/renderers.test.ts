@@ -38,14 +38,14 @@ test("real Pi components collapse a run to one content line and expand directly"
   const { components, finish } = setup();
   finish(0); finish(1);
   await tick();
-  assert.deepEqual(components.flatMap((c) => plain(c)), padded("Used 2 tools..."));
+  assert.deepEqual(components.flatMap((c) => plain(c)), padded("Used 2 tools"));
   for (const c of components) c.setExpanded(true);
   const expanded = components.flatMap((c) => plain(c)).join("\n");
   assert.match(expanded, /PRIVATE RESULT/);
   assert.match(expanded, /PRIVATE COMMAND/);
   assert.match(expanded, /PRIVATE CONTENT/);
   for (const c of components) c.setExpanded(false);
-  assert.deepEqual(components.flatMap((c) => plain(c)), padded("Used 2 tools..."));
+  assert.deepEqual(components.flatMap((c) => plain(c)), padded("Used 2 tools"));
 });
 
 test("standalone collapsed calls never leak argument bodies or output", () => {
@@ -71,10 +71,10 @@ test("pending, partial, completed, and failed runs update their shared summary",
   assert.doesNotMatch(plain(components[0])[2], /private failure/);
 });
 
-test("compact backgrounds and padding match vanilla Pi in dark and light themes", () => {
+test("compact blocks use neutral styling except for failures and retain vanilla padding", () => {
   const check = (components: ToolExecutionComponent[], label: string, status: "pending" | "success" | "error") => {
-    const color = status === "pending" ? "warning" : status === "error" ? "error" : "muted";
-    const background = status === "pending" ? "toolPendingBg" : status === "error" ? "toolErrorBg" : "toolSuccessBg";
+    const color = status === "error" ? "error" : "muted";
+    const background = status === "error" ? "toolErrorBg" : "toolPendingBg";
     const vanilla = new ToolExecutionComponent("reference", "reference", {}, {}, {
       renderCall: (_args, currentTheme) => ({
         render: (width) => [currentTheme.fg(color, truncateToWidth(label, width))],
@@ -82,7 +82,7 @@ test("compact backgrounds and padding match vanilla Pi in dark and light themes"
       }),
       renderResult: () => ({ render: () => [], invalidate() {} }),
     }, ui, process.cwd());
-    vanilla.updateResult({ content: [], isError: status === "error" }, status === "pending");
+    vanilla.updateResult({ content: [], isError: status === "error" }, status !== "error");
     for (const width of [3, 8, 20, 80, 120]) {
       const lines = components.flatMap((c) => c.render(width));
       assert.deepEqual(lines, vanilla.render(width));
@@ -105,15 +105,15 @@ test("compact backgrounds and padding match vanilla Pi in dark and light themes"
       check(solo.components, "[failed] read 0.txt", "error");
 
       const group = setup();
-      check(group.components, "Using 2 tools... (2 pending)", "pending");
+      check(group.components, "Using 2 tools (2 pending)", "pending");
       group.finish(1);
-      check(group.components, "Using 2 tools... (1 pending)", "pending");
+      check(group.components, "Using 2 tools (1 pending)", "pending");
       group.finish(1, { ...output, isError: true });
-      check(group.components, "[1 failed] Using 2 tools... (1 pending)", "error");
+      check(group.components, "[1 failed] Using 2 tools (1 pending)", "error");
       group.finish(0);
-      check(group.components, "[1 failed] Used 2 tools...", "error");
+      check(group.components, "[1 failed] Used 2 tools", "error");
       group.finish(1);
-      check(group.components, "Used 2 tools...", "success");
+      check(group.components, "Used 2 tools", "success");
     }
   } finally {
     initTheme("dark", false);

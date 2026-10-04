@@ -77,7 +77,7 @@ class Slot implements Component {
       const errors = group?.filter((entry) => entry.error).length ?? Number(context.isError);
       let label: string;
       if (group && group.length > 1) {
-        label = `${pending ? "Using" : "Used"} ${group.length} tools...`;
+        label = `${pending ? "Using" : "Used"} ${group.length} tools`;
         if (pending) label += ` (${pending} pending)`;
         if (errors) label = `[${errors} failed] ${label}`;
       } else {
@@ -90,8 +90,8 @@ class Slot implements Component {
         label = `[${status}] ${label}`;
       }
       const failed = errors > 0 || context.isError;
-      const color = failed ? "error" : pending ? "warning" : "muted";
-      const background = failed ? "toolErrorBg" : pending ? "toolPendingBg" : "toolSuccessBg";
+      const color = failed ? "error" : "muted";
+      const background = failed ? "toolErrorBg" : "toolPendingBg";
       const box = new Box(width > 2 ? 1 : 0, 1, (line) => state.theme.bg(background, line));
       box.addChild({
         render: (contentWidth) => [state.theme.fg(color, truncateToWidth(label, contentWidth))],

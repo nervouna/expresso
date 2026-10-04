@@ -1,11 +1,11 @@
 # Expresso
 
-A Pi extension that collapses consecutive tool calls into a one-line summary with vanilla Pi tool-message backgrounds and padding. Tested with `@earendil-works/pi-coding-agent` 1.0.2.
+A Pi extension that collapses consecutive tool calls into a one-line summary with a subdued, theme-aware background and vanilla Pi padding. Tested with `@earendil-works/pi-coding-agent` 1.0.2.
 
 ```text
-Used 3 tools...
+Used 3 tools
 
-[1 failed] Used 2 tools...
+[1 failed] Used 2 tools
 
 [done] read src/index.ts
 ```
@@ -33,13 +33,13 @@ Expresso targets the Earendil Pi package named above and requires its `registerT
 ## Behavior
 
 - A single call shows its status, tool name, and a short identifier when available, such as a path or the first command line. Scripts, file contents, diffs, JSON arguments, and result previews stay hidden.
-- Adjacent calls share `Used X tools...`. The count is tool invocations, including repeated uses of the same tool. Calls can span several execution steps.
+- Adjacent calls share `Used X tools`. The count is tool invocations, including repeated uses of the same tool. Calls can span several execution steps.
 - Visible assistant or user messages end a group. Thinking blocks also end groups because Pi displays either their contents or a collapsed thinking label. Visible custom messages and session summaries are boundaries too. Custom session entries conservatively end groups because their visibility depends on their renderer.
-- Running groups show `Using X tools...` with a pending count. Failures remain visible even when their details are collapsed.
+- Running groups show `Using X tools` with a pending count. Failures remain visible even when their details are collapsed.
 - Image-producing calls stay separate, with groups split on both sides. Pi still draws the images using its existing size, protocol, and visibility settings. Expresso never removes image data or changes your image preference.
 - Built-in tools, codemode, extension tools, and MCP tools use the same grouping logic. Tools called inside codemode count as part of the codemode invocation unless Pi gives them their own transcript rows.
 
-Each visible compact block uses Pi's themed tool background, one column of horizontal padding, and one blank row above and below its single content line. The background shows failure if any call failed, otherwise pending while calls remain, then success. Pi retains its normal blank separator before the block. Hidden members take no lines and add no padding. At widths of one or two columns, horizontal padding is omitted to keep the summary within the terminal.
+Each visible compact block has one column of horizontal padding and one blank row above and below its single content line. Waiting, running, and successful calls use muted text on Pi's `toolPendingBg`, a subdued gray in the built-in dark and light themes. If any call failed, the block uses Pi's error text and `toolErrorBg` instead. Pi retains its normal blank separator before the block. Hidden members take no lines and add no padding. At widths of one or two columns, horizontal padding is omitted to keep the summary within the terminal.
 
 ### Expansion controls
 
@@ -74,7 +74,7 @@ The demo uses temporary Pi settings and session files, which it removes on exit.
 
 Check the following:
 
-1. The first three calls share one padded `Used 3 tools...` summary with Pi's success background, even though they came from two execution steps.
+1. The first three calls share one padded `Used 3 tools` summary with a subdued background, even though they came from two execution steps.
 2. The standalone edit has one content line with the same padding. The following group shows a failure marker and Pi's error background.
 3. Ctrl+O reveals arguments, output, and the edit diff. Press it again to restore the summaries.
 4. The colored image remains between two groups, each containing two calls, if your terminal supports Pi's image protocol.
@@ -91,7 +91,7 @@ npm run test:tui     # Real CLI smoke tests; requires Python 3 and a POSIX PTY
 npm pack --dry-run   # Inspect the package contents
 ```
 
-The automated tests cover streaming updates, boundaries, failures and aborts, image splits, width handling, theme changes, downstream renderer reuse, HTML results, lifecycle restoration, and non-TUI passthrough. Compact backgrounds and padding are compared against Pi's own tool components in dark and light themes, including mixed pending/failed groups. Built-in expanded output is also compared against Pi's tool components.
+The automated tests cover streaming updates, boundaries, failures and aborts, image splits, width handling, theme changes, downstream renderer reuse, HTML results, lifecycle restoration, and non-TUI passthrough. Compact styling and padding are checked in dark and light themes: non-failed blocks use Pi's neutral pending background, and failures use its error background, including mixed pending/failed groups. Built-in expanded output is also compared against Pi's tool components.
 
 The PTY suite checks both fullscreen and regular modes, including Ctrl+O, image protocol output, `/reload`, and resizing. It uses isolated settings and no model requests. To check a different installed Pi binary:
 
