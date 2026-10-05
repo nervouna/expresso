@@ -9,7 +9,6 @@ import { stripTerminalSequences, type TUI } from "@earendil-works/pi-tui";
 import { loadExtensions } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js";
 import { assistant, call, result, text, tick } from "./helpers.ts";
 import { TIMING_ENTRY } from "../src/timing.ts";
-import { THROUGHPUT_ENTRY } from "../src/throughput.ts";
 
 initTheme("dark", false);
 
@@ -65,6 +64,20 @@ test("extension loads through Pi's TypeScript loader without replacing tools or 
   assert.equal(extension.toolRenderers?.length, 1);
 });
 
+test("legacy footer settings leave the footer untouched and register no throughput hook", async () => {
+  const h = await harness();
+  h.setSettings({ expresso: { footer: true, nerdFonts: true } });
+  h.ctx.ui.setFooter = () => { assert.fail("Expresso must not replace or clear the footer"); };
+  assert.equal(h.extension.handlers.has("before_provider_request"), false);
+  for (const reason of ["startup", "reload"] as const) {
+    await h.emit({ type: "session_start", reason });
+    await h.emit({ type: "message_end", message: assistant([text("Done")], "stop") });
+    await h.emit({ type: "agent_settled" });
+    await h.emit({ type: "session_shutdown", reason: "reload" });
+  }
+  assert.deepEqual(h.session.getEntries(), []);
+});
+
 test("reload can construct tool components before session_start without leaking previews", async () => {
   const h = await harness();
   h.session.appendMessage(assistant([call("a"), call("b")]));
@@ -81,11 +94,11 @@ test("reload can construct tool components before session_start without leaking 
   assert.match(h.render(), /PRIVATE b/);
 });
 
-test("saved throughput metadata does not split adjacent tool groups on reload", async () => {
+test("legacy throughput metadata does not split adjacent tool groups on reload", async () => {
   const h = await harness();
   h.session.appendMessage(assistant([call("a")]));
   h.session.appendMessage(result("a"));
-  h.session.appendCustomEntry(THROUGHPUT_ENTRY, { version: 1, output: 100, elapsedMs: 2000 });
+  h.session.appendCustomEntry("expresso:request-throughput", { version: 1, output: 100, elapsedMs: 2000 });
   h.session.appendMessage(assistant([call("b")]));
   h.session.appendMessage(result("b"));
   await h.emit({ type: "session_start", reason: "reload" });

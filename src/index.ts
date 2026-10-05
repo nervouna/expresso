@@ -3,15 +3,12 @@ import {
   type ExtensionAPI,
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { registerFooter } from "./footer.ts";
 import { ToolGroups } from "./groups.ts";
 import { CompactRenderers } from "./renderers.ts";
 import { readOptions } from "./settings.ts";
-import { THROUGHPUT_ENTRY } from "./throughput.ts";
 import { RoundTimings, TIMING_ENTRY, type TimingRecord } from "./timing.ts";
 
 export default function expresso(pi: ExtensionAPI) {
-  registerFooter(pi);
   const groups = new ToolGroups();
   const timings = new RoundTimings((ids) => groups.refresh(ids));
   const persist = (record: TimingRecord | undefined) => {
@@ -38,7 +35,8 @@ export default function expresso(pi: ExtensionAPI) {
     Object.assign(options, readOptions(pi.getSettings()));
     for (const entry of ctx.sessionManager.buildContextEntries()) {
       if (entry.type === "custom") {
-        if (entry.customType !== TIMING_ENTRY && entry.customType !== THROUGHPUT_ENTRY) groups.boundary();
+        // Older Expresso versions saved hidden throughput entries between tool calls.
+        if (entry.customType !== TIMING_ENTRY && entry.customType !== "expresso:request-throughput") groups.boundary();
       } else {
         for (const message of sessionEntryToContextMessages(entry)) {
           groups.observe(message, "history");
