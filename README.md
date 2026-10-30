@@ -1,6 +1,14 @@
 # Expresso
 
-A Pi extension that collapses consecutive tool calls into a one-line summary with a subdued, theme-aware background and vanilla Pi padding. Tested with `@earendil-works/pi-coding-agent` 1.0.2.
+[![Release](https://img.shields.io/github/v/release/nervouna/expresso)](https://github.com/nervouna/expresso/releases/latest)
+![Pi extension](https://img.shields.io/badge/Pi-extension-lightgrey)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+<!-- banner -->
+
+Expresso is an extension for the [Pi](https://github.com/earendil-works/pi) coding agent. In Pi's terminal transcript it collapses consecutive tool calls into one-line summaries with a status, a count and a duration, and expands them to the full tool output with **Ctrl+O**.
+
+<!-- screenshots -->
 
 ```text
 Used 3 tools, took 48s
@@ -10,6 +18,18 @@ Used 3 tools, took 48s
 [done] read src/index.ts, took 48s
 ```
 
+## Status
+
+Expresso is a personal project, used daily by its author. It is for people who run Pi in the terminal and want a shorter transcript. It is tested with `@earendil-works/pi-coding-agent` 1.0.2 and needs its `registerToolRenderer()` API; other Pi versions may differ, and it is not meant for the older `@mariozechner` packages. The package declares Node.js 22.19 or later. Nerd Font icons are optional and need a Nerd Font in the terminal.
+
+Releases are source only: Pi installs the extension straight from this repository, with no build step.
+
+See also [Lungo](https://github.com/nervouna/lungo), a footer for Pi that was extracted from Expresso.
+
+## How it is built
+
+Most of the code is written by coding agents following `AGENTS.md`. It points them to the behavior contract in this README, asks them to check the installed Pi package's documentation and typings rather than assume an API, and requires `npm run verify` for code changes, plus the terminal (PTY) checks for rendering or lifecycle changes. Terminal color fixes need regression tests on the actual foreground and background colors. See [CONTRIBUTING.md](CONTRIBUTING.md) to report a bug or send a fix, and [SECURITY.md](SECURITY.md) for security problems.
+
 ## Install
 
 ```sh
@@ -17,6 +37,19 @@ pi install git:github.com/nervouna/expresso
 ```
 
 Restart Pi or run `/reload` to load the extension.
+
+## Update and remove
+
+```sh
+pi update --extension git:github.com/nervouna/expresso
+pi remove git:github.com/nervouna/expresso
+```
+
+Run `/reload` or restart Pi afterwards. Removing Expresso leaves its hidden timing entries in existing sessions.
+
+## Data and network
+
+Expresso makes no network requests and reads no files of its own. It reads its settings through Pi and writes one hidden `expresso:round-timing` entry per tool-using response to the current session (see Timing). That entry holds timing data only and never enters model context.
 
 ## Try it
 
