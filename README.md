@@ -4,11 +4,11 @@
 ![Pi extension](https://img.shields.io/badge/Pi-extension-lightgrey)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-<!-- banner -->
+![Expresso](docs/images/banner.jpg)
 
 Expresso is an extension for the [Pi](https://github.com/earendil-works/pi) coding agent. In Pi's terminal transcript it collapses consecutive tool calls into one-line summaries with a status, a count and a duration, and expands them to the full tool output with **Ctrl+O**.
 
-<!-- screenshots -->
+![A Pi session where Expresso folds two rounds of tool calls into one-line summaries](docs/images/session.png)
 
 ```text
 Used 3 tools, took 48s
