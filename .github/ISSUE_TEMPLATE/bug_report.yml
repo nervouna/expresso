@@ -1,0 +1,66 @@
+name: Bug report
+description: Something in Expresso does not work as described
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: What you did and what went wrong. A terminal screenshot or copied transcript helps.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The tools involved (built-in, codemode, MCP, other extensions), your settings and the steps. `npm run demo` can help show it.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The release or commit you run (`git rev-parse --short HEAD`).
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Pi version, OS and terminal
+      placeholder: e.g. Pi 1.0.2, macOS 15.5, Ghostty
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options:
+        - Grouping and summaries
+        - Timing
+        - Nerd Font icons
+        - Expansion (Ctrl+O, mouse)
+        - Colors and layout
+        - Session restore (/reload, resume, tree, compaction)
+        - Docs
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: TUI mode
+      options:
+        - Fullscreen
+        - Regular
+        - Both
+        - Not sure
+  - type: textarea
+    id: fix
+    attributes:
+      label: Suggested fix
+      description: Optional. If you know where the cause is, say so.
